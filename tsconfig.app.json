@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "lib/**/*.js",
+    "worker/**/*.ts",
+    "build/**/*.ts",
+    "vite.config.ts",
+    "next.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "app/_sites-preview"
+  ]
+}
