@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createParticipantId,
   positionForFormationRole,
   projectAbilityRecord,
   projectPlayerCatalog,
+  projectSimulatorTeams,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
 
@@ -216,5 +218,125 @@ test("keeps catalog and default lineup ordering stable across source order", () 
     selectDefaultLineup(reverseCatalog, options).map(
       (participant) => participant.player.id,
     ),
+  );
+});
+
+test("groups projected players into deterministic simulator teams", () => {
+  const records = [
+    abilityRecord({
+      id: "team-c-9",
+      number: 9,
+      position: "FW",
+      overall: 80,
+      teamId: "team-c",
+      teamName: "Zulu Nation",
+      group: "B",
+    }),
+    abilityRecord({
+      id: "team-b-10",
+      number: 10,
+      position: "MF",
+      overall: 82,
+      teamId: "team-b",
+      teamName: "Beta Nation",
+      group: "A",
+    }),
+    abilityRecord({
+      id: "team-a-11",
+      number: 11,
+      position: "FW",
+      overall: 84,
+      teamId: "team-a",
+      teamName: "Alpha Nation",
+      group: "A",
+    }),
+    abilityRecord({
+      id: "team-a-2",
+      number: 2,
+      position: "DF",
+      overall: 78,
+      teamId: "team-a",
+      teamName: "Alpha Nation",
+      group: "A",
+    }),
+  ];
+
+  const teams = projectSimulatorTeams(records);
+  const reversedTeams = projectSimulatorTeams([...records].reverse());
+
+  assert.deepEqual(
+    teams.map((team) => team.id),
+    ["team-a", "team-b", "team-c"],
+  );
+  assert.deepEqual(
+    teams.map((team) => team.players.map((player) => player.id)),
+    [["team-a-2", "team-a-11"], ["team-b-10"], ["team-c-9"]],
+  );
+  assert.deepEqual(teams, reversedTeams);
+  assert.deepEqual(Object.keys(teams[0]), ["id", "name", "group", "players"]);
+  assert.equal(
+    teams.reduce((count, team) => count + team.players.length, 0),
+    records.length,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(teams),
+    /provenance|isInferred|secondaryPosition|"foot"/,
+  );
+});
+
+test("rejects inconsistent metadata for a shared team ID", () => {
+  const records = [
+    abilityRecord({
+      id: "shared-1",
+      number: 1,
+      position: "GK",
+      overall: 75,
+      teamId: "shared",
+      teamName: "Shared Nation",
+      group: "A",
+    }),
+    abilityRecord({
+      id: "shared-2",
+      number: 2,
+      position: "DF",
+      overall: 75,
+      teamId: "shared",
+      teamName: "Changed Nation",
+      group: "A",
+    }),
+  ];
+
+  assert.throws(
+    () => projectSimulatorTeams(records),
+    /Inconsistent metadata for team shared/,
+  );
+});
+
+test("projects the complete ability dataset into simulator teams", async () => {
+  const datasetUrl = new URL(
+    "../data/world-cup-2026-player-abilities.json",
+    import.meta.url,
+  );
+  const dataset = JSON.parse(await readFile(datasetUrl, "utf8"));
+  const teams = projectSimulatorTeams(dataset.players);
+  const reversedTeams = projectSimulatorTeams([...dataset.players].reverse());
+
+  assert.equal(teams.length, 48);
+  assert.equal(
+    teams.reduce((count, team) => count + team.players.length, 0),
+    1248,
+  );
+  assert.ok(teams.every((team) => team.players.length === 26));
+  assert.deepEqual(
+    teams.map((team) => team.id),
+    reversedTeams.map((team) => team.id),
+  );
+  assert.deepEqual(
+    teams.map((team) => team.players.map((player) => player.id)),
+    reversedTeams.map((team) => team.players.map((player) => player.id)),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(teams),
+    /provenance|isInferred|secondaryPosition|"foot"/,
   );
 });
