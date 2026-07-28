@@ -1,7 +1,7 @@
 {
   "name": "fta-tactics-architect",
   "version": "0.1.0",
-  "description": "Interactive football tactics board prototype",
+  "description": "Deterministic actual-player football scenario simulator",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
