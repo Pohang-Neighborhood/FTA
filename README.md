@@ -36,6 +36,10 @@
 - 별도 드래그앤드롭 라이브러리 없이 Pointer Events 사용
 - 인증, 유료 API, 외부 데이터 키 미사용
 
+## 선수 데이터
+
+2026 FIFA 월드컵 선수 명단, PlayerElo 및 시뮬레이션용 세부 능력치 데이터베이스의 구조·생성·검증 방법은 [`data/README.md`](data/README.md)를 참고합니다.
+
 ## 프로젝트 구조
 
 ```text
