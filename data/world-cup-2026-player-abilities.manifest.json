@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "snapshotAt": "2026-07-22T06:45:36.189Z",
+  "generator": {
+    "version": 1,
+    "importer": {
+      "path": "scripts/import-world-cup-player-abilities.mjs",
+      "sha256": "5e1684a81a139de76eb79116df5f242dd6137aefd95b329d616581c0dceaa578"
+    },
+    "core": {
+      "path": "scripts/lib/player-ability-data.mjs",
+      "sha256": "14c0c0cf5240f9eb59bfe6d423f1cdb24bbe2939fd3537419f59bafa94947f2d"
+    },
+    "inferenceModel": "fc26-playerelo-knn-v1",
+    "nodeVersion": "v26.3.1",
+    "sqliteVersion": "3.53.2"
+  },
+  "sourcePackage": {
+    "datasetRef": "rovnez/fc-26-fifa-26-player-data",
+    "datasetVersion": 3,
+    "downloadUrl": "https://www.kaggle.com/api/v1/datasets/download/rovnez/fc-26-fifa-26-player-data?datasetVersionNumber=3",
+    "archive": {
+      "name": "fc26-v3.zip",
+      "bytes": 3184169,
+      "sha256": "a58223323b824376f69e912912947754b108a20d241d5bb22fdd19c54e5c5c3b"
+    },
+    "csv": {
+      "name": "FC26_20250921.csv",
+      "bytes": 10576203,
+      "sha256": "4399cb2bcc2a14a2872e76a118f8f4bf64d7954503949c75751a14f33863e3b2",
+      "players": 18405,
+      "columns": 110,
+      "fifaVersion": 26,
+      "fifaUpdate": 4,
+      "fifaUpdateDate": "2025-09-19"
+    }
+  },
+  "inputs": [
+    {
+      "name": "world-cup-2026-players.json",
+      "bytes": 1308895,
+      "sha256": "ee858f9b0c89f7071c8b0cfd8717ae11dc6c6bb99849af34f925478875b0553b"
+    },
+    {
+      "name": "FC26_20250921.csv",
+      "bytes": 10576203,
+      "sha256": "4399cb2bcc2a14a2872e76a118f8f4bf64d7954503949c75751a14f33863e3b2",
+      "datasetVersion": 3
+    }
+  ],
+  "outputs": [
+    {
+      "name": "world-cup-2026-player-abilities.json",
+      "bytes": 1677491,
+      "sha256": "a2ad8fa31708c75ba6aacc046344e800827a0778fcf17dd0bcd3963b90dfd6d4"
+    },
+    {
+      "name": "world-cup-2026-player-abilities.sqlite",
+      "bytes": 557056,
+      "sha256": "26391c366d294c68b6cf05902344d3d745ab295131a2252e3f47cd18773f6eff"
+    }
+  ],
+  "counts": {
+    "players": 1248,
+    "direct": 925,
+    "inferred": 323,
+    "goalkeepers": 145
+  }
+}
