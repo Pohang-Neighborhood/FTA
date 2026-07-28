@@ -41,3 +41,8 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# player ability source archives
+/data/FC26_20250921.csv
+/data/fc26-v3.zip
+/data/raw/
