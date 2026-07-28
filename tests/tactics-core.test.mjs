@@ -5,6 +5,9 @@ import {
   analyzeShape,
   clampPitchPosition,
   createPlacements,
+  mirrorFormationSlots,
+  pickPlacements,
+  replacePlacements,
   substitutePlayer,
   toPitchPosition,
   toPitchPositionWithOffset,
@@ -51,6 +54,42 @@ test("creates one immutable slot per unique starting player", () => {
   assert.deepEqual(placements.st, { role: "ST", x: 50, y: 20 });
   assert.throws(() => createPlacements(["gk", "gk", "st"], slots), RangeError);
   assert.throws(() => createPlacements(["gk"], slots), RangeError);
+});
+
+test("mirrors an opponent formation without mutating the home slots", () => {
+  const mirrored = mirrorFormationSlots(slots);
+
+  assert.deepEqual(mirrored, [
+    { role: "GK", x: 50, y: 10 },
+    { role: "LB", x: 86, y: 30 },
+    { role: "ST", x: 50, y: 80 },
+  ]);
+  assert.equal(slots[1].x, 14);
+  assert.equal(slots[0].y, 90);
+});
+
+test("replaces one team's placements while preserving the other team", () => {
+  const placements = {
+    homeGk: { role: "GK", x: 50, y: 90 },
+    awayGk: { role: "GK", x: 50, y: 10 },
+    awaySt: { role: "ST", x: 50, y: 80 },
+  };
+  const replacement = {
+    awayGk: { role: "GK", x: 50, y: 8 },
+    awaySt: { role: "ST", x: 54, y: 78 },
+  };
+
+  assert.deepEqual(
+    replacePlacements(placements, ["awayGk", "awaySt"], replacement),
+    {
+      homeGk: placements.homeGk,
+      ...replacement,
+    },
+  );
+  assert.deepEqual(
+    pickPlacements(placements, ["homeGk", "missing"]),
+    { homeGk: placements.homeGk },
+  );
 });
 
 test("reports live shape labels and a bounded score", () => {
