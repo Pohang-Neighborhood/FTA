@@ -1697,3 +1697,1081 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Scenario simulation workspace */
+.sim-workspace {
+  margin: 0 auto;
+  max-width: 1600px;
+  padding: clamp(18px, 2.5vw, 40px);
+  width: 100%;
+}
+
+.sim-header {
+  align-items: end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.sim-header h1,
+.sim-header p {
+  margin: 0;
+}
+
+.sim-header h1 {
+  font-size: clamp(24px, 3.2vw, 42px);
+  letter-spacing: -0.055em;
+  line-height: 1.05;
+  margin: 5px 0 9px;
+}
+
+.sim-header > div:first-child > p:last-child {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 670px;
+}
+
+.sim-eyebrow {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sim-playback-controls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sim-playback-controls button,
+.sim-pass-editor button,
+.sim-pass-list button,
+.sim-player-card > button {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+  min-height: 42px;
+  padding: 0 14px;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.sim-playback-controls button:first-child,
+.sim-pass-editor button {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #07100d;
+}
+
+.sim-playback-controls button:not(:disabled):hover,
+.sim-pass-editor button:not(:disabled):hover,
+.sim-pass-list button:not(:disabled):hover,
+.sim-player-card > button:not(:disabled):hover {
+  border-color: var(--lime);
+  transform: translateY(-1px);
+}
+
+.sim-playback-controls button:first-child:not(:disabled):hover,
+.sim-pass-editor button:not(:disabled):hover {
+  background: #e4ff79;
+}
+
+.sim-workspace button:focus-visible,
+.sim-workspace select:focus-visible,
+.sim-workspace input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.sim-workspace button:disabled,
+.sim-workspace select:disabled,
+.sim-workspace input:disabled,
+.sim-workspace fieldset:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.sim-timeline {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: minmax(118px, auto) minmax(160px, 1fr);
+  margin-bottom: 16px;
+  padding: 11px 14px;
+}
+
+.sim-timeline label {
+  align-items: center;
+  color: var(--muted-strong);
+  display: flex;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 9px;
+}
+
+.sim-timeline output {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.sim-timeline input[type="range"] {
+  accent-color: var(--lime);
+  cursor: pointer;
+  min-height: 28px;
+  width: 100%;
+}
+
+.sim-layout {
+  align-items: start;
+  display: grid;
+  gap: clamp(14px, 1.6vw, 24px);
+  grid-template-areas: "setup pitch inspector";
+  grid-template-columns:
+    minmax(235px, 0.75fr)
+    minmax(430px, 1.5fr)
+    minmax(280px, 0.9fr);
+}
+
+.sim-setup-panel,
+.sim-inspector {
+  background:
+    linear-gradient(160deg, rgba(24, 37, 32, 0.98), rgba(14, 24, 20, 0.98));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.18);
+  max-height: calc(100svh - 120px);
+  overflow: auto;
+  padding: clamp(16px, 1.6vw, 23px);
+  position: sticky;
+  scrollbar-color: rgba(216, 255, 79, 0.22) transparent;
+  scrollbar-width: thin;
+  top: 92px;
+}
+
+.sim-setup-panel {
+  grid-area: setup;
+}
+
+.sim-inspector {
+  grid-area: inspector;
+}
+
+.sim-setup-panel > h3,
+.sim-inspector > h3 {
+  font-size: 18px;
+  letter-spacing: -0.035em;
+  margin: 0 0 17px;
+}
+
+.sim-team-setup,
+.sim-pass-editor {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 7px;
+  margin: 0 0 17px;
+  min-width: 0;
+  padding: 0 0 17px;
+}
+
+.sim-team-setup legend,
+.sim-pass-editor legend {
+  color: var(--lime);
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.sim-team-setup label,
+.sim-pass-editor label,
+.sim-field > span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sim-team-setup select,
+.sim-pass-editor select,
+.sim-pass-editor input,
+.sim-field select,
+.sim-field input {
+  background: #0b1411;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 10px;
+  min-height: 41px;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.sim-team-setup select + label,
+.sim-pass-editor select + label {
+  margin-top: 5px;
+}
+
+.sim-field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 17px;
+}
+
+.sim-field small {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.sim-pass-editor button {
+  justify-self: stretch;
+  margin-top: 6px;
+}
+
+.sim-pass-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sim-pass-list:empty::before {
+  color: var(--muted);
+  content: "등록한 패스 지시가 없습니다.";
+  font-size: 9px;
+}
+
+.sim-pass-list li {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 7px 8px 7px 10px;
+}
+
+.sim-pass-list li span {
+  font-size: 9px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.sim-pass-list button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.sim-pitch-column {
+  grid-area: pitch;
+  min-width: 0;
+}
+
+.sim-team-legend {
+  align-items: center;
+  display: flex;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.sim-team-legend span {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.sim-team-legend i {
+  border: 2px solid currentColor;
+  display: inline-block;
+  height: 11px;
+  width: 11px;
+}
+
+.sim-legend-home {
+  color: var(--lime);
+}
+
+.sim-legend-home i {
+  border-radius: 50%;
+}
+
+.sim-legend-away {
+  color: #ff9c86;
+}
+
+.sim-legend-away i {
+  border-radius: 3px;
+  transform: rotate(45deg);
+}
+
+.sim-pitch-instructions {
+  color: var(--muted-strong);
+  font-size: 9px;
+  line-height: 1.55;
+  margin: 0 auto 10px;
+  max-width: 680px;
+  text-align: center;
+}
+
+.sim-pitch {
+  aspect-ratio: 68 / 105;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(216, 255, 79, 0.06), transparent 33%),
+    #0d5a42;
+  border: 1px solid rgba(231, 255, 236, 0.23);
+  border-radius: 20px;
+  box-shadow:
+    0 35px 80px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  cursor: crosshair;
+  isolation: isolate;
+  margin: 0 auto;
+  max-width: 680px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.sim-pitch-locked {
+  cursor: progress;
+}
+
+.sim-pitch-stripes {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.026) 0,
+    rgba(255, 255, 255, 0.026) 10%,
+    rgba(0, 0, 0, 0.038) 10%,
+    rgba(0, 0, 0, 0.038) 20%
+  );
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.sim-pitch-boundary {
+  border: 1px solid rgba(226, 246, 226, 0.66);
+  inset: 2.7%;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.sim-center-line {
+  background: rgba(226, 246, 226, 0.66);
+  height: 1px;
+  left: 2.7%;
+  pointer-events: none;
+  position: absolute;
+  right: 2.7%;
+  top: 50%;
+  z-index: 1;
+}
+
+.sim-center-circle {
+  border: 1px solid rgba(226, 246, 226, 0.66);
+  border-radius: 50%;
+  height: 12%;
+  left: 50%;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 18.5%;
+  z-index: 1;
+}
+
+.sim-center-circle::after {
+  background: rgba(226, 246, 226, 0.82);
+  border-radius: 50%;
+  content: "";
+  height: 4px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+}
+
+.sim-penalty-box {
+  border: 1px solid rgba(226, 246, 226, 0.66);
+  height: 16%;
+  left: 50%;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+  width: 58%;
+  z-index: 1;
+}
+
+.sim-penalty-box-top {
+  border-top: 0;
+  top: 2.7%;
+}
+
+.sim-penalty-box-bottom {
+  border-bottom: 0;
+  bottom: 2.7%;
+}
+
+.sim-route-layer {
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+  z-index: 2;
+}
+
+.sim-route {
+  opacity: 0.76;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.sim-route-home {
+  stroke: var(--lime);
+}
+
+.sim-route-away {
+  stroke: #ff8064;
+}
+
+.sim-route-manual {
+  filter: drop-shadow(0 0 3px rgba(216, 255, 79, 0.5));
+  opacity: 0.98;
+  stroke-dasharray: none;
+  stroke-width: 2.5;
+}
+
+.sim-route-automatic {
+  opacity: 0.47;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
+}
+
+.sim-player-token {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  height: 67px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  touch-action: manipulation;
+  transform: translate(-50%, -50%);
+  transition:
+    filter 150ms ease,
+    opacity 150ms ease;
+  user-select: none;
+  width: 70px;
+  z-index: 5;
+}
+
+.sim-player-away {
+  z-index: 4;
+}
+
+.sim-player-home {
+  z-index: 5;
+}
+
+.sim-player-selected {
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.42));
+  z-index: 7;
+}
+
+.sim-player-disc {
+  align-items: center;
+  background: #08140f;
+  border: 2px solid rgba(244, 247, 238, 0.82);
+  border-radius: 50%;
+  box-shadow:
+    0 6px 13px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.035);
+  display: flex;
+  flex-direction: column;
+  height: 46px;
+  justify-content: center;
+  position: relative;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  width: 46px;
+}
+
+.sim-player-disc small {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.sim-player-disc strong {
+  font-size: 16px;
+  line-height: 1.05;
+}
+
+.sim-player-home .sim-player-disc::after,
+.sim-player-away .sim-player-disc::after {
+  border: 2px solid #0d5a42;
+  bottom: -2px;
+  content: "";
+  height: 8px;
+  position: absolute;
+  right: -2px;
+  width: 8px;
+}
+
+.sim-player-home .sim-player-disc::after {
+  background: var(--lime);
+  border-radius: 50%;
+}
+
+.sim-player-away .sim-player-disc {
+  background: #28130e;
+  border-color: #ff9c86;
+  border-radius: 12px;
+}
+
+.sim-player-away .sim-player-disc::after {
+  background: var(--coral);
+  border-radius: 2px;
+}
+
+.sim-player-name {
+  background: rgba(5, 16, 11, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+  margin-top: -2px;
+  max-width: 66px;
+  overflow: hidden;
+  padding: 4px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-player-away .sim-player-name {
+  background: rgba(45, 17, 11, 0.9);
+  border-color: rgba(255, 156, 134, 0.3);
+}
+
+.sim-player-manual .sim-player-disc {
+  box-shadow:
+    0 0 0 2px rgba(216, 255, 79, 0.28),
+    0 7px 14px rgba(0, 0, 0, 0.4);
+}
+
+.sim-player-selected .sim-player-disc {
+  background: var(--lime);
+  border-color: #f4ffbe;
+  color: #07100d;
+  transform: translateY(-2px) scale(1.06);
+}
+
+.sim-player-away.sim-player-selected .sim-player-disc {
+  background: var(--coral);
+  border-color: #ffd0c5;
+  color: #230a04;
+}
+
+.sim-player-selected .sim-player-disc small {
+  color: rgba(7, 16, 13, 0.62);
+}
+
+.sim-player-token:focus-visible {
+  outline: 0;
+}
+
+.sim-player-token:focus-visible .sim-player-disc {
+  box-shadow:
+    0 0 0 3px #07100d,
+    0 0 0 6px var(--focus),
+    0 7px 14px rgba(0, 0, 0, 0.4);
+}
+
+.sim-ball-token {
+  background:
+    radial-gradient(circle at 35% 30%, #fff 0 24%, transparent 25%),
+    conic-gradient(
+      from 20deg,
+      #f7f5ec 0 18%,
+      #17201c 18% 30%,
+      #f7f5ec 30% 52%,
+      #17201c 52% 64%,
+      #f7f5ec 64% 84%,
+      #17201c 84% 100%
+    );
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  border-radius: 50%;
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.5),
+    0 0 0 3px rgba(255, 255, 255, 0.16);
+  height: 15px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 15px;
+  z-index: 9;
+}
+
+.sim-status {
+  background: rgba(216, 255, 79, 0.07);
+  border: 1px solid rgba(216, 255, 79, 0.14);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  font-size: 10px;
+  line-height: 1.45;
+  margin: 12px auto 0;
+  max-width: 680px;
+  min-height: 36px;
+  padding: 10px 14px;
+  text-align: center;
+}
+
+.sim-player-card {
+  background:
+    linear-gradient(135deg, rgba(216, 255, 79, 0.1), transparent 48%),
+    #0b1411;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.sim-player-card > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.sim-player-card > header > span {
+  align-items: center;
+  background: var(--lime);
+  border-radius: 50%;
+  color: #07100d;
+  display: flex;
+  flex: 0 0 48px;
+  font-size: 20px;
+  font-weight: 850;
+  height: 48px;
+  justify-content: center;
+}
+
+.sim-player-card h4,
+.sim-player-card p {
+  margin: 0;
+}
+
+.sim-player-card header small {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sim-player-card h4 {
+  font-size: 18px;
+  letter-spacing: -0.035em;
+  margin: 2px 0;
+}
+
+.sim-player-card p {
+  color: var(--muted-strong);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.sim-live-player-metrics {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.sim-live-player-metrics div,
+.sim-ability-grid div {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.sim-live-player-metrics dt,
+.sim-live-player-metrics dd {
+  margin: 0;
+}
+
+.sim-live-player-metrics dt {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.sim-live-player-metrics dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.sim-player-card > button {
+  margin-bottom: 14px;
+  width: 100%;
+}
+
+.sim-ability-grid {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sim-ability-grid div {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: space-between;
+  padding: 6px 7px;
+}
+
+.sim-ability-grid span {
+  color: var(--muted);
+  font-size: 6px;
+  line-height: 1.25;
+}
+
+.sim-ability-grid strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.sim-team-metrics,
+.sim-event-log {
+  border-top: 1px solid var(--line);
+  padding-top: 17px;
+}
+
+.sim-team-metrics h4,
+.sim-event-log h4 {
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.sim-team-metrics article {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  padding: 10px;
+}
+
+.sim-team-metrics h5 {
+  color: var(--lime);
+  font-size: 9px;
+  margin: 0 0 7px;
+}
+
+.sim-team-metrics dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.sim-team-metrics dl div {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.sim-team-metrics dt,
+.sim-team-metrics dd {
+  font-size: 8px;
+  margin: 0;
+}
+
+.sim-team-metrics dt {
+  color: var(--muted);
+}
+
+.sim-team-metrics dd {
+  color: var(--muted-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: right;
+}
+
+.sim-event-log {
+  margin-top: 18px;
+}
+
+.sim-event-log > div {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sim-event-log > div span {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.sim-event-log ol {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0;
+}
+
+.sim-event-log li,
+.sim-event-log > p {
+  background: rgba(255, 255, 255, 0.025);
+  border-left: 2px solid var(--coral);
+  color: var(--muted-strong);
+  font-size: 8px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 7px 8px;
+}
+
+.sim-empty-state {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  margin: 48px auto;
+  max-width: 620px;
+  padding: 40px;
+  text-align: center;
+}
+
+.sim-empty-state h2 {
+  margin: 0 0 8px;
+}
+
+.sim-empty-state p {
+  color: var(--muted-strong);
+  margin: 0;
+}
+
+@media (hover: hover) {
+  .sim-player-token:hover .sim-player-disc {
+    border-color: var(--lime);
+    transform: translateY(-2px);
+  }
+
+  .sim-player-away:hover .sim-player-disc {
+    border-color: #ffd0c5;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sim-layout {
+    grid-template-areas:
+      "setup"
+      "pitch"
+      "inspector";
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0 auto;
+    max-width: 760px;
+  }
+
+  .sim-setup-panel,
+  .sim-inspector {
+    max-height: none;
+    position: static;
+  }
+
+  .sim-setup-panel {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sim-setup-panel > h3,
+  .sim-pass-list {
+    grid-column: 1 / -1;
+  }
+
+  .sim-team-setup,
+  .sim-field,
+  .sim-pass-editor {
+    margin-bottom: 0;
+  }
+
+  .sim-pass-editor {
+    border-bottom: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .sim-workspace {
+    padding: 14px 9px 34px;
+  }
+
+  .sim-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sim-playback-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sim-playback-controls button {
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .sim-timeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sim-setup-panel {
+    display: block;
+  }
+
+  .sim-team-setup,
+  .sim-pass-editor,
+  .sim-field {
+    margin-bottom: 16px;
+  }
+
+  .sim-team-legend {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  .sim-team-legend span {
+    justify-content: center;
+  }
+
+  .sim-pitch {
+    border-radius: 15px;
+  }
+
+  .sim-player-token {
+    height: 54px;
+    width: 54px;
+  }
+
+  .sim-player-disc {
+    height: 40px;
+    width: 40px;
+  }
+
+  .sim-player-disc strong {
+    font-size: 14px;
+  }
+
+  .sim-player-name {
+    display: none;
+    font-size: 7px;
+    max-width: 54px;
+  }
+
+  .sim-player-selected .sim-player-name,
+  .sim-player-token:focus-visible .sim-player-name {
+    display: block;
+  }
+
+  .sim-ball-token {
+    height: 13px;
+    width: 13px;
+  }
+
+  .sim-inspector,
+  .sim-setup-panel {
+    border-radius: 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .sim-header h2 {
+    font-size: 24px;
+  }
+
+  .sim-playback-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .sim-player-token {
+    height: 48px;
+    width: 48px;
+  }
+
+  .sim-player-disc {
+    height: 35px;
+    width: 35px;
+  }
+
+  .sim-player-disc small {
+    font-size: 6px;
+  }
+
+  .sim-player-disc strong {
+    font-size: 12px;
+  }
+
+  .sim-live-player-metrics,
+  .sim-ability-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-workspace *,
+  .sim-workspace *::before,
+  .sim-workspace *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
