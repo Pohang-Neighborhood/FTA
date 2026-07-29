@@ -22,7 +22,7 @@ async function render() {
   );
 }
 
-test("server-renders the complete tactics workspace", async () => {
+test("server-renders the actual-player scenario simulator", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -30,33 +30,39 @@ test("server-renders the complete tactics workspace", async () => {
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ko"/i);
   assert.match(html, /<title>FTA \| Football Tactics Architect<\/title>/i);
-  assert.match(html, /<main[^>]*class="workspace"/i);
-  assert.match(html, /<h1>Match Lab<\/h1>/i);
-  assert.match(html, /data-testid="tactics-pitch"/i);
+  assert.match(html, /<main[^>]*class="sim-page"/i);
+  assert.match(html, /<h1[^>]*>선수 움직임·패스 시뮬레이션<\/h1>/i);
+  assert.match(html, /class="sim-pitch"/i);
   assert.match(html, /aria-live="polite"/i);
-  assert.match(html, /aria-label="편집할 팀 선택"/i);
-  assert.match(html, /우리 팀 공격 ↑/i);
-  assert.match(html, /상대팀 공격 ↓/i);
-  assert.match(html, /Prototype data/i);
+  assert.match(html, /id="sim-home-team"/i);
+  assert.match(html, /id="sim-away-team"/i);
+  assert.match(html, /South Korea(?:<!-- -->)? 공격 ↑/i);
+  assert.match(html, /Brazil(?:<!-- -->)? 공격 ↓/i);
+  assert.match(html, /초기 공 소유 선수/i);
+  assert.match(html, /패스 지시/i);
+  assert.match(html, /장면 길이/i);
   assert.match(
     html,
     /property="og:image"[^>]*content="http:\/\/localhost(?::3000)?\/og\.png"/i,
   );
 
-  const playerButtons = html.match(/<button[^>]*data-player-token=/gi) ?? [];
-  const homePlayers = html.match(/data-team="home"/gi) ?? [];
-  const awayPlayers = html.match(/data-team="away"/gi) ?? [];
+  const playerButtons = html.match(/<button[^>]*data-sim-token=/gi) ?? [];
+  const homePlayers = html.match(/data-sim-token="home:[^"]+"/gi) ?? [];
+  const awayPlayers = html.match(/data-sim-token="away:[^"]+"/gi) ?? [];
   assert.equal(playerButtons.length, 22);
   assert.equal(homePlayers.length, 11);
   assert.equal(awayPlayers.length, 11);
   assert.match(
     html,
-    /aria-label="우리 팀, 위쪽 공격 서민규, 9번, ST\. 방향키로 이동, Shift와 방향키로 크게 이동"/i,
+    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 선택 후 경기장을 눌러 경로 지정"/i,
   );
   assert.match(
     html,
-    /aria-label="상대팀, 아래쪽 공격 마테우스 리마, 1번, GK\. 방향키로 이동, Shift와 방향키로 크게 이동"/i,
+    /aria-label="상대 팀 Alisson, 1번, GK\. 자동 반응 선수 정보 보기"/i,
   );
 
-  assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/i);
+  assert.doesNotMatch(
+    html,
+    /Prototype data|isInferred|provenance|secondaryPosition|codex-preview|Building your site|react-loading-skeleton/i,
+  );
 });

@@ -1,7 +1,7 @@
 {
   "name": "fta-tactics-architect",
   "version": "0.1.0",
-  "description": "Interactive football tactics board prototype",
+  "description": "Deterministic actual-player football scenario simulator",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,8 +10,9 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run test:logic && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:logic": "node --test tests/tactics-core.test.mjs",
+    "test": "npm run test:logic && npm run test:data && npm run build && node --test tests/rendered-html.test.mjs",
+    "test:logic": "node --test tests/tactics-core.test.mjs tests/player-catalog.test.mjs tests/simulation-core.test.mjs",
+    "test:data": "node --test tests/world-cup-player-data.test.mjs tests/world-cup-player-abilities.test.mjs tests/inferred-player-report.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "verify": "npm run lint && npm run typecheck && npm test",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
