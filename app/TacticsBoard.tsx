@@ -15,6 +15,9 @@ import {
   clamp,
   clampPitchPosition,
   createPlacements,
+  mirrorFormationSlots,
+  pickPlacements,
+  replacePlacements,
   substitutePlayer,
   toPitchPosition,
   toPitchPositionWithOffset,
@@ -23,12 +26,15 @@ import {
   defensiveLines,
   formations,
   initialLineupIds,
+  initialOpponentLineupIds,
   mentalities,
   mockPlayers,
+  opponentMockPlayers,
   pressingLevels,
   widths,
   type Formation,
   type Player,
+  type TeamSide,
   type TacticalOption,
 } from "./tactics-data";
 
@@ -41,10 +47,13 @@ type Placement = {
 type PlacementMap = Record<string, Placement>;
 
 type BoardSnapshot = {
-  formationId: string;
+  homeFormationId: string;
+  awayFormationId: string;
   activePlayerIds: string[];
+  opponentPlayerIds: string[];
   placements: PlacementMap;
   selectedPlayerId: string | null;
+  editingTeam: TeamSide;
 };
 
 type DragState = {
@@ -67,6 +76,8 @@ type ChoiceGroupProps = {
 };
 
 const defaultFormation = formations[0];
+const defaultOpponentFormation = formations[1];
+const allMockPlayers = [...mockPlayers, ...opponentMockPlayers];
 
 function clonePlacements(placements: PlacementMap): PlacementMap {
   return Object.fromEntries(
@@ -80,12 +91,27 @@ function clonePlacements(placements: PlacementMap): PlacementMap {
 function formationPlacements(
   playerIds: string[],
   formation: Formation,
+  mirrored = false,
 ): PlacementMap {
-  return createPlacements(playerIds, formation.slots) as PlacementMap;
+  const slots = mirrored
+    ? mirrorFormationSlots(formation.slots)
+    : formation.slots;
+  return createPlacements(playerIds, slots) as PlacementMap;
+}
+
+function initialPlacements() {
+  return {
+    ...formationPlacements(initialLineupIds, defaultFormation),
+    ...formationPlacements(
+      initialOpponentLineupIds,
+      defaultOpponentFormation,
+      true,
+    ),
+  };
 }
 
 function findPlayer(playerId: string | null): Player | undefined {
-  return mockPlayers.find((player) => player.id === playerId);
+  return allMockPlayers.find((player) => player.id === playerId);
 }
 
 function ChoiceGroup({ id, label, options, value, onChange }: ChoiceGroupProps) {
@@ -130,12 +156,19 @@ function PlayerStat({ label, value }: { label: string; value: number }) {
 }
 
 export function TacticsBoard() {
-  const [formationId, setFormationId] = useState(defaultFormation.id);
+  const [homeFormationId, setHomeFormationId] = useState(defaultFormation.id);
+  const [awayFormationId, setAwayFormationId] = useState(
+    defaultOpponentFormation.id,
+  );
   const [activePlayerIds, setActivePlayerIds] = useState([...initialLineupIds]);
+  const [opponentPlayerIds, setOpponentPlayerIds] = useState([
+    ...initialOpponentLineupIds,
+  ]);
   const [placements, setPlacements] = useState<PlacementMap>(() =>
-    formationPlacements(initialLineupIds, defaultFormation),
+    initialPlacements(),
   );
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>("p10");
+  const [editingTeam, setEditingTeam] = useState<TeamSide>("home");
   const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
   const [history, setHistory] = useState<BoardSnapshot[]>([]);
   const [mentality, setMentality] = useState("balanced");
@@ -154,15 +187,26 @@ export function TacticsBoard() {
   const summaryTriggerRef = useRef<HTMLButtonElement>(null);
 
   const formation =
-    formations.find((candidate) => candidate.id === formationId) ?? defaultFormation;
+    formations.find((candidate) => candidate.id === homeFormationId) ??
+    defaultFormation;
+  const opponentFormation =
+    formations.find((candidate) => candidate.id === awayFormationId) ??
+    defaultOpponentFormation;
   const activePlayers = activePlayerIds
     .map((playerId) => findPlayer(playerId))
     .filter((player): player is Player => Boolean(player));
+  const activeOpponentPlayers = opponentPlayerIds
+    .map((playerId) => findPlayer(playerId))
+    .filter((player): player is Player => Boolean(player));
+  const allActivePlayers = [...activePlayers, ...activeOpponentPlayers];
   const benchPlayers = mockPlayers.filter(
     (player) => !activePlayerIds.includes(player.id),
   );
   const selectedPlayer = findPlayer(selectedPlayerId);
-  const shape = useMemo(() => analyzeShape(placements), [placements]);
+  const shape = useMemo(
+    () => analyzeShape(pickPlacements(placements, activePlayerIds)),
+    [activePlayerIds, placements],
+  );
 
   const activeMentality =
     mentalities.find((option) => option.id === mentality) ?? mentalities[1];
@@ -194,10 +238,13 @@ export function TacticsBoard() {
 
   function captureSnapshot(): BoardSnapshot {
     return {
-      formationId,
+      homeFormationId,
+      awayFormationId,
       activePlayerIds: [...activePlayerIds],
+      opponentPlayerIds: [...opponentPlayerIds],
       placements: clonePlacements(placements),
       selectedPlayerId,
+      editingTeam,
     };
   }
 
@@ -206,10 +253,13 @@ export function TacticsBoard() {
   }
 
   function restoreSnapshot(snapshot: BoardSnapshot) {
-    setFormationId(snapshot.formationId);
+    setHomeFormationId(snapshot.homeFormationId);
+    setAwayFormationId(snapshot.awayFormationId);
     setActivePlayerIds([...snapshot.activePlayerIds]);
+    setOpponentPlayerIds([...snapshot.opponentPlayerIds]);
     setPlacements(clonePlacements(snapshot.placements));
     setSelectedPlayerId(snapshot.selectedPlayerId);
+    setEditingTeam(snapshot.editingTeam);
   }
 
   function undo() {
@@ -225,15 +275,20 @@ export function TacticsBoard() {
 
   function resetBoard() {
     pushHistory(captureSnapshot());
-    setFormationId(defaultFormation.id);
+    setHomeFormationId(defaultFormation.id);
+    setAwayFormationId(defaultOpponentFormation.id);
     setActivePlayerIds([...initialLineupIds]);
-    setPlacements(formationPlacements(initialLineupIds, defaultFormation));
+    setOpponentPlayerIds([...initialOpponentLineupIds]);
+    setPlacements(initialPlacements());
     setSelectedPlayerId("p10");
-    setStatusMessage("기본 4-3-3 배치로 초기화했습니다.");
+    setEditingTeam("home");
+    setStatusMessage("양 팀의 기본 배치로 초기화했습니다.");
   }
 
-  function changeFormation(nextFormationId: string) {
-    if (nextFormationId === formationId) {
+  function changeFormation(team: TeamSide, nextFormationId: string) {
+    const currentFormationId =
+      team === "home" ? homeFormationId : awayFormationId;
+    if (nextFormationId === currentFormationId) {
       return;
     }
 
@@ -245,9 +300,41 @@ export function TacticsBoard() {
     }
 
     pushHistory(captureSnapshot());
-    setFormationId(nextFormation.id);
-    setPlacements(formationPlacements(activePlayerIds, nextFormation));
-    setStatusMessage(`${nextFormation.label} 포메이션으로 재배치했습니다.`);
+    if (team === "home") {
+      setHomeFormationId(nextFormation.id);
+      setPlacements((current) =>
+        replacePlacements(
+          current,
+          activePlayerIds,
+          formationPlacements(activePlayerIds, nextFormation),
+        ),
+      );
+    } else {
+      setAwayFormationId(nextFormation.id);
+      setPlacements((current) =>
+        replacePlacements(
+          current,
+          opponentPlayerIds,
+          formationPlacements(opponentPlayerIds, nextFormation, true),
+        ),
+      );
+    }
+    setStatusMessage(
+      `${team === "home" ? "우리 팀" : "상대팀"}을 ${nextFormation.label} 포메이션으로 재배치했습니다.`,
+    );
+  }
+
+  function selectEditingTeam(team: TeamSide) {
+    setEditingTeam(team);
+    const currentSelection = findPlayer(selectedPlayerId);
+    if (currentSelection?.team !== team) {
+      const fallbackPlayerId =
+        team === "home" ? activePlayerIds[0] : opponentPlayerIds[0];
+      setSelectedPlayerId(fallbackPlayerId ?? null);
+    }
+    setStatusMessage(
+      `${team === "home" ? "우리 팀" : "상대팀"} 선수를 편집합니다.`,
+    );
   }
 
   function clampToVisiblePitch(x: number, y: number) {
@@ -311,8 +398,12 @@ export function TacticsBoard() {
     }
 
     const pitchRect = pitch.getBoundingClientRect();
+    const player = findPlayer(playerId);
     event.currentTarget.setPointerCapture(event.pointerId);
     setSelectedPlayerId(playerId);
+    if (player) {
+      setEditingTeam(player.team);
+    }
     setDraggingPlayerId(playerId);
     dragRef.current = {
       playerId,
@@ -376,7 +467,9 @@ export function TacticsBoard() {
       );
       pushHistory(drag.snapshot);
       const player = findPlayer(drag.playerId);
-      setStatusMessage(`${player?.name ?? "선수"}의 위치를 변경했습니다.`);
+      setStatusMessage(
+        `${player?.team === "away" ? "상대팀 " : ""}${player?.name ?? "선수"}의 위치를 변경했습니다.`,
+      );
       suppressClickRef.current = drag.playerId;
       window.setTimeout(() => {
         if (suppressClickRef.current === drag.playerId) {
@@ -390,7 +483,11 @@ export function TacticsBoard() {
   }
 
   function handlePitchClick(event: MouseEvent<HTMLDivElement>) {
-    if (!selectedPlayerId || !activePlayerIds.includes(selectedPlayerId)) {
+    if (
+      !selectedPlayerId ||
+      (!activePlayerIds.includes(selectedPlayerId) &&
+        !opponentPlayerIds.includes(selectedPlayerId))
+    ) {
       return;
     }
 
@@ -412,7 +509,9 @@ export function TacticsBoard() {
         ...position,
       },
     }));
-    setStatusMessage(`${selectedPlayer?.name ?? "선수"}을 선택한 위치로 이동했습니다.`);
+    setStatusMessage(
+      `${selectedPlayer?.team === "away" ? "상대팀 " : ""}${selectedPlayer?.name ?? "선수"}을 선택한 위치로 이동했습니다.`,
+    );
   }
 
   function handlePlayerKeyDown(
@@ -439,6 +538,10 @@ export function TacticsBoard() {
     );
     pushHistory(captureSnapshot());
     setSelectedPlayerId(playerId);
+    const player = findPlayer(playerId);
+    if (player) {
+      setEditingTeam(player.team);
+    }
     setPlacements((current) => ({
       ...current,
       [playerId]: {
@@ -446,12 +549,13 @@ export function TacticsBoard() {
         ...nextPosition,
       },
     }));
-    const player = findPlayer(playerId);
-    setStatusMessage(`${player?.name ?? "선수"}을 방향키로 이동했습니다.`);
+    setStatusMessage(
+      `${player?.team === "away" ? "상대팀 " : ""}${player?.name ?? "선수"}을 방향키로 이동했습니다.`,
+    );
   }
 
   function swapSelectedPlayer(incomingPlayerId: string) {
-    if (!selectedPlayerId) {
+    if (!selectedPlayerId || selectedPlayer?.team !== "home") {
       return;
     }
 
@@ -546,11 +650,13 @@ export function TacticsBoard() {
           </section>
 
           <label className="select-field" htmlFor="formation-select">
-            <span>포메이션</span>
+            <span>우리 팀 포메이션</span>
             <select
               id="formation-select"
-              value={formationId}
-              onChange={(event) => changeFormation(event.target.value)}
+              value={homeFormationId}
+              onChange={(event) =>
+                changeFormation("home", event.target.value)
+              }
             >
               {formations.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -559,6 +665,26 @@ export function TacticsBoard() {
               ))}
             </select>
             <small>{formation.description}</small>
+          </label>
+
+          <label className="select-field" htmlFor="opponent-formation-select">
+            <span>상대팀 포메이션</span>
+            <select
+              id="opponent-formation-select"
+              value={awayFormationId}
+              onChange={(event) =>
+                changeFormation("away", event.target.value)
+              }
+            >
+              {formations.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label} · {option.name}
+                </option>
+              ))}
+            </select>
+            <small>
+              상대팀은 반대 방향으로 {opponentFormation.description}
+            </small>
           </label>
 
           <ChoiceGroup
@@ -603,7 +729,9 @@ export function TacticsBoard() {
                 Interactive tactics board
                 <span className="mock-badge">Mock players</span>
               </p>
-              <h2 id="board-title">{formation.label} · {formation.name}</h2>
+              <h2 id="board-title">
+                {formation.label} vs {opponentFormation.label}
+              </h2>
             </div>
             <div className="board-hint">
               <span aria-hidden="true">↕</span>
@@ -611,25 +739,70 @@ export function TacticsBoard() {
             </div>
           </div>
 
-          <label className="mobile-formation-control" htmlFor="mobile-formation-select">
-            <span>포메이션 빠른 변경</span>
-            <select
-              id="mobile-formation-select"
-              value={formationId}
-              onChange={(event) => changeFormation(event.target.value)}
+          <div className="mobile-formation-control">
+            <label htmlFor="mobile-formation-select">
+              <span>우리 팀</span>
+              <select
+                id="mobile-formation-select"
+                value={homeFormationId}
+                onChange={(event) =>
+                  changeFormation("home", event.target.value)
+                }
+              >
+                {formations.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label htmlFor="mobile-opponent-formation-select">
+              <span>상대팀</span>
+              <select
+                id="mobile-opponent-formation-select"
+                value={awayFormationId}
+                onChange={(event) =>
+                  changeFormation("away", event.target.value)
+                }
+              >
+                {formations.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div
+            className="team-editor"
+            role="group"
+            aria-label="편집할 팀 선택"
+          >
+            <button
+              type="button"
+              className="home-team"
+              aria-pressed={editingTeam === "home"}
+              onClick={() => selectEditingTeam("home")}
             >
-              {formations.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label} · {option.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span aria-hidden="true" />
+              우리 팀 · 위쪽으로 공격
+            </button>
+            <button
+              type="button"
+              className="away-team"
+              aria-pressed={editingTeam === "away"}
+              onClick={() => selectEditingTeam("away")}
+            >
+              <span aria-hidden="true" />
+              상대팀 · 아래쪽으로 공격
+            </button>
+          </div>
 
           <div className="pitch-frame">
             <div className="direction-label opponent-direction">
-              <span>상대 골대</span>
-              <strong>ATTACK ↑</strong>
+              <span>상대팀 골대</span>
+              <strong>우리 팀 공격 ↑</strong>
             </div>
             <div
               ref={pitchRef}
@@ -637,7 +810,9 @@ export function TacticsBoard() {
               data-testid="tactics-pitch"
               style={pitchStyle}
               onClick={handlePitchClick}
-              aria-label="축구 전술 경기장. 선수를 드래그하거나 선택한 뒤 빈 공간을 누르세요."
+              role="group"
+              aria-labelledby="board-title"
+              aria-describedby="pitch-instructions"
             >
               <div className="pitch-stripes" aria-hidden="true" />
               <div className="pitch-boundary" aria-hidden="true" />
@@ -656,7 +831,7 @@ export function TacticsBoard() {
                 <span>DEFENSIVE LINE</span>
               </div>
 
-              {activePlayers.map((player) => {
+              {allActivePlayers.map((player) => {
                 const placement = placements[player.id];
                 if (!placement) {
                   return null;
@@ -669,9 +844,10 @@ export function TacticsBoard() {
                     type="button"
                     key={player.id}
                     data-player-token={player.id}
-                    className={`player-token${isSelected ? " is-selected" : ""}${isDragging ? " is-dragging" : ""}`}
+                    data-team={player.team}
+                    className={`player-token is-${player.team}${editingTeam === player.team ? " is-editing-team" : ""}${isSelected ? " is-selected" : ""}${isDragging ? " is-dragging" : ""}`}
                     style={{ left: `${placement.x}%`, top: `${placement.y}%` }}
-                    aria-label={`${player.name}, ${player.number}번, ${placement.role}. 방향키로 위치 이동`}
+                    aria-label={`${player.team === "home" ? "우리 팀, 위쪽 공격" : "상대팀, 아래쪽 공격"} ${player.name}, ${player.number}번, ${placement.role}. 방향키로 이동, Shift와 방향키로 크게 이동`}
                     aria-pressed={isSelected}
                     aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                     onClick={(event) => {
@@ -681,7 +857,10 @@ export function TacticsBoard() {
                         return;
                       }
                       setSelectedPlayerId(player.id);
-                      setStatusMessage(`${player.name} 선수를 선택했습니다.`);
+                      setEditingTeam(player.team);
+                      setStatusMessage(
+                        `${player.team === "home" ? "우리 팀" : "상대팀"} ${player.name} 선수를 선택했습니다.`,
+                      );
                     }}
                     onKeyDown={(event) => handlePlayerKeyDown(event, player.id)}
                     onPointerDown={(event) => handlePlayerPointerDown(event, player.id)}
@@ -699,10 +878,16 @@ export function TacticsBoard() {
               })}
             </div>
             <div className="direction-label home-direction">
-              <strong>↓ BUILD</strong>
-              <span>우리 골대</span>
+              <strong>상대팀 공격 ↓</strong>
+              <span>우리 팀 골대</span>
             </div>
           </div>
+
+          <p id="pitch-instructions" className="pitch-instructions">
+            우리 팀은 위쪽, 상대팀은 아래쪽으로 공격합니다. 편집할 팀을 선택한 뒤
+            선수를 드래그하거나 방향키로 움직이고, 선택한 선수는 빈 공간을 눌러
+            이동할 수 있습니다.
+          </p>
 
           <p className="sr-status" role="status" aria-live="polite">
             {statusMessage}
@@ -719,11 +904,18 @@ export function TacticsBoard() {
           </div>
 
           {selectedPlayer ? (
-            <section className="selected-player-card" aria-label="선택한 선수 정보">
+            <section
+              className={`selected-player-card is-${selectedPlayer.team}`}
+              aria-label={`선택한 ${selectedPlayer.team === "home" ? "우리 팀" : "상대팀"} 선수 정보`}
+            >
               <div className="selected-player-header">
                 <span className="selected-number">{selectedPlayer.number}</span>
                 <div>
-                  <small>SELECTED PLAYER</small>
+                  <small>
+                    {selectedPlayer.team === "home"
+                      ? "HOME · SELECTED"
+                      : "AWAY · SELECTED"}
+                  </small>
                   <h3>{selectedPlayer.name}</h3>
                   <p>
                     {placements[selectedPlayer.id]?.role ?? selectedPlayer.primaryPosition}
@@ -744,18 +936,22 @@ export function TacticsBoard() {
             <div className="section-title-row">
               <div>
                 <small>SUBSTITUTES</small>
-                <h3 id="bench-title">교체 명단</h3>
+                <h3 id="bench-title">우리 팀 교체 명단</h3>
               </div>
               <span>{benchPlayers.length}명</span>
             </div>
-            <p className="bench-help">필드 선수를 선택한 뒤 교체 선수를 누르세요.</p>
+            <p className="bench-help">
+              {selectedPlayer?.team === "away"
+                ? "상대팀 선수를 편집 중입니다. 우리 팀 선수를 선택하면 교체할 수 있습니다."
+                : "우리 팀 필드 선수를 선택한 뒤 교체 선수를 누르세요."}
+            </p>
             <div className="bench-list">
               {benchPlayers.map((player) => (
                 <button
                   type="button"
                   key={player.id}
                   onClick={() => swapSelectedPlayer(player.id)}
-                  disabled={!selectedPlayerId}
+                  disabled={selectedPlayer?.team !== "home"}
                   aria-label={`${player.name}, ${player.number}번, ${player.primaryPosition} 투입`}
                 >
                   <strong>{player.number}</strong>
@@ -780,7 +976,7 @@ export function TacticsBoard() {
             </div>
             <div>
               <small>LIVE SHAPE</small>
-              <h3 id="shape-title">전술 균형도</h3>
+              <h3 id="shape-title">우리 팀 전술 균형도</h3>
               <dl>
                 <div><dt>폭</dt><dd>{shape.widthLabel} · {shape.width}</dd></div>
                 <div><dt>라인</dt><dd>{shape.lineLabel} · {shape.averageLine}</dd></div>
@@ -846,12 +1042,31 @@ export function TacticsBoard() {
               <div><small>DEFENSIVE LINE</small><strong>{activeLine.label}</strong></div>
               <div><small>SHAPE SCORE</small><strong>{shape.score}</strong></div>
             </div>
-            <div className="summary-lineup">
-              {activePlayers.map((player) => (
-                <span key={player.id}>
-                  <b>{player.number}</b> {player.name}
-                </span>
-              ))}
+            <div className="summary-lineups">
+              <section className="summary-team" aria-labelledby="summary-home-title">
+                <h3 id="summary-home-title">
+                  우리 팀 · {formation.label}
+                </h3>
+                <div className="summary-lineup">
+                  {activePlayers.map((player) => (
+                    <span key={player.id}>
+                      <b>{player.number}</b> {player.name}
+                    </span>
+                  ))}
+                </div>
+              </section>
+              <section className="summary-team is-away" aria-labelledby="summary-away-title">
+                <h3 id="summary-away-title">
+                  상대팀 · {opponentFormation.label}
+                </h3>
+                <div className="summary-lineup">
+                  {activeOpponentPlayers.map((player) => (
+                    <span key={player.id}>
+                      <b>{player.number}</b> {player.name}
+                    </span>
+                  ))}
+                </div>
+              </section>
             </div>
             <div className="summary-footer">
               <p>모든 선수 데이터는 UI/UX 검증을 위한 가상 데이터입니다.</p>

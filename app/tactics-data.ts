@@ -1,5 +1,8 @@
+export type TeamSide = "home" | "away";
+
 export type Player = {
   id: string;
+  team: TeamSide;
   name: string;
   number: number;
   primaryPosition: string;
@@ -30,7 +33,7 @@ export type TacticalOption = {
   description: string;
 };
 
-export const mockPlayers: Player[] = [
+const homePlayerProfiles: Omit<Player, "team">[] = [
   {
     id: "p01",
     name: "김현우",
@@ -220,6 +223,142 @@ export const mockPlayers: Player[] = [
   },
 ];
 
+export const mockPlayers: Player[] = homePlayerProfiles.map((player) => ({
+  ...player,
+  team: "home",
+}));
+
+const opponentPlayerProfiles: Omit<Player, "team">[] = [
+  {
+    id: "o01",
+    name: "마테우스 리마",
+    number: 1,
+    primaryPosition: "GK",
+    secondaryPosition: "SW",
+    foot: "오른발",
+    pace: 58,
+    passing: 76,
+    defending: 83,
+  },
+  {
+    id: "o02",
+    name: "가브리엘 모라",
+    number: 2,
+    primaryPosition: "RB",
+    secondaryPosition: "CB",
+    foot: "오른발",
+    pace: 86,
+    passing: 79,
+    defending: 78,
+  },
+  {
+    id: "o03",
+    name: "루카스 아우베스",
+    number: 3,
+    primaryPosition: "CB",
+    secondaryPosition: "DM",
+    foot: "왼발",
+    pace: 72,
+    passing: 74,
+    defending: 87,
+  },
+  {
+    id: "o04",
+    name: "치아구 코스타",
+    number: 4,
+    primaryPosition: "CB",
+    secondaryPosition: "RB",
+    foot: "오른발",
+    pace: 75,
+    passing: 73,
+    defending: 86,
+  },
+  {
+    id: "o05",
+    name: "브루누 사우자",
+    number: 6,
+    primaryPosition: "LB",
+    secondaryPosition: "WB",
+    foot: "왼발",
+    pace: 88,
+    passing: 80,
+    defending: 76,
+  },
+  {
+    id: "o06",
+    name: "안드레 호샤",
+    number: 5,
+    primaryPosition: "DM",
+    secondaryPosition: "CM",
+    foot: "오른발",
+    pace: 74,
+    passing: 84,
+    defending: 84,
+  },
+  {
+    id: "o07",
+    name: "엔히키 누네스",
+    number: 8,
+    primaryPosition: "CM",
+    secondaryPosition: "DM",
+    foot: "오른발",
+    pace: 79,
+    passing: 87,
+    defending: 72,
+  },
+  {
+    id: "o08",
+    name: "펠리피 마르틴스",
+    number: 10,
+    primaryPosition: "AM",
+    secondaryPosition: "CM",
+    foot: "왼발",
+    pace: 84,
+    passing: 90,
+    defending: 54,
+  },
+  {
+    id: "o09",
+    name: "하파엘 두아르치",
+    number: 7,
+    primaryPosition: "RW",
+    secondaryPosition: "AM",
+    foot: "왼발",
+    pace: 92,
+    passing: 82,
+    defending: 45,
+  },
+  {
+    id: "o10",
+    name: "비니시우스 카르두주",
+    number: 9,
+    primaryPosition: "ST",
+    secondaryPosition: "CF",
+    foot: "오른발",
+    pace: 89,
+    passing: 76,
+    defending: 39,
+  },
+  {
+    id: "o11",
+    name: "조앙 페헤이라",
+    number: 11,
+    primaryPosition: "LW",
+    secondaryPosition: "ST",
+    foot: "오른발",
+    pace: 91,
+    passing: 81,
+    defending: 47,
+  },
+];
+
+export const opponentMockPlayers: Player[] = opponentPlayerProfiles.map(
+  (player) => ({
+    ...player,
+    team: "away",
+  }),
+);
+
 export const initialLineupIds = [
   "p01",
   "p05",
@@ -232,6 +371,20 @@ export const initialLineupIds = [
   "p11",
   "p10",
   "p09",
+];
+
+export const initialOpponentLineupIds = [
+  "o01",
+  "o05",
+  "o03",
+  "o04",
+  "o02",
+  "o06",
+  "o07",
+  "o08",
+  "o11",
+  "o10",
+  "o09",
 ];
 
 export const formations: Formation[] = [
