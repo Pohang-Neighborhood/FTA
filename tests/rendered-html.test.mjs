@@ -54,12 +54,13 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.equal(awayPlayers.length, 11);
   assert.match(
     html,
-    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 선택 후 경기장을 눌러 경로 지정"/i,
+    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 선택 후 경기장을 눌러 경로 지정"/i,
   );
   assert.match(
     html,
-    /aria-label="상대 팀 Alisson, 1번, GK\. 자동 반응 선수 정보 보기"/i,
+    /aria-label="상대 팀 Alisson, 1번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 자동 반응 선수 정보 보기"/i,
   );
+  assert.match(html, /선수 토큰을 드래그하면 시작 위치가 바뀝니다/i);
 
   assert.doesNotMatch(
     html,

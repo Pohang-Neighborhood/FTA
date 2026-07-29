@@ -2183,14 +2183,14 @@ button:disabled {
   align-items: center;
   background: transparent;
   border: 0;
-  cursor: pointer;
+  cursor: grab;
   display: flex;
   flex-direction: column;
   height: 67px;
   justify-content: center;
   padding: 0;
   position: absolute;
-  touch-action: manipulation;
+  touch-action: none;
   transform: translate(-50%, -50%);
   transition:
     filter 150ms ease,
@@ -2198,6 +2198,12 @@ button:disabled {
   user-select: none;
   width: 70px;
   z-index: 5;
+}
+
+.sim-player-dragging {
+  cursor: grabbing;
+  transition: none;
+  z-index: 8;
 }
 
 .sim-player-away {
@@ -2299,6 +2305,15 @@ button:disabled {
   box-shadow:
     0 0 0 2px rgba(216, 255, 79, 0.28),
     0 7px 14px rgba(0, 0, 0, 0.4);
+}
+
+.sim-player-custom-position .sim-player-disc {
+  outline: 2px solid rgba(111, 220, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.sim-player-dragging .sim-player-disc {
+  transform: translateY(-2px) scale(1.08);
 }
 
 .sim-player-selected .sim-player-disc {
