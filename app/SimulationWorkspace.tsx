@@ -20,6 +20,7 @@ import {
   toPitchPositionWithOffset,
 } from "../lib/tactics-core.js";
 import {
+  positionForFormationRole,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
 import {
@@ -61,6 +62,10 @@ type Placement = PitchPoint & {
 type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
 type ManualRouteMap = Record<string, PitchPoint[]>;
+
+function positionGroupClass(role: string) {
+  return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
+}
 
 type DragState = {
   participantId: ParticipantId;
@@ -1515,13 +1520,32 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         </aside>
 
         <div className="sim-pitch-column">
-          <div className="sim-team-legend" aria-label="팀과 공격 방향">
-            <span className="sim-legend-home">
-              <i aria-hidden="true" /> {homeTeam?.name} 공격 ↑
-            </span>
-            <span className="sim-legend-away">
-              <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
-            </span>
+          <div className="sim-tactical-legend">
+            <div className="sim-team-legend" aria-label="팀과 공격 방향">
+              <span className="sim-legend-home">
+                <i aria-hidden="true" /> {homeTeam?.name} 공격 ↑
+              </span>
+              <span className="sim-legend-away">
+                <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
+              </span>
+            </div>
+            <div
+              className="sim-position-legend"
+              aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"
+            >
+              <span className="sim-position-fw">
+                <i aria-hidden="true">▲▼</i> 공격
+              </span>
+              <span className="sim-position-mf">
+                <i aria-hidden="true">▲▼</i> 미드필더
+              </span>
+              <span className="sim-position-df">
+                <i aria-hidden="true">▲▼</i> 수비
+              </span>
+              <span className="sim-position-gk">
+                <i aria-hidden="true">▲▼</i> 골키퍼
+              </span>
+            </div>
           </div>
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
             선수와 공을 드래그하면 시작 위치가 바뀝니다. 공을 선수 위에 놓으면
@@ -1614,6 +1638,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     participant.teamSide === "home"
                       ? "sim-player-home"
                       : "sim-player-away",
+                    positionGroupClass(participant.role),
                     isSelected ? "sim-player-selected" : "",
                     isManual ? "sim-player-manual" : "sim-player-automatic",
                     hasCustomPlacement ? "sim-player-custom-position" : "",

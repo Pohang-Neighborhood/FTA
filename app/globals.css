@@ -1990,6 +1990,12 @@ button:disabled {
   min-width: 0;
 }
 
+.sim-tactical-legend {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
 .sim-team-legend {
   align-items: center;
   display: flex;
@@ -1997,7 +2003,6 @@ button:disabled {
   font-size: 9px;
   gap: 12px;
   justify-content: center;
-  margin-bottom: 8px;
 }
 
 .sim-team-legend span {
@@ -2028,6 +2033,31 @@ button:disabled {
 .sim-legend-away i {
   border-radius: 3px;
   transform: rotate(45deg);
+}
+
+.sim-position-legend {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  gap: 5px 10px;
+  justify-content: center;
+}
+
+.sim-position-legend span {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sim-position-legend i {
+  color: var(--sim-position-color);
+  font-size: 7px;
+  font-style: normal;
+  letter-spacing: -3px;
+  padding-right: 3px;
 }
 
 .sim-pitch-instructions {
@@ -2253,20 +2283,46 @@ button:disabled {
   line-height: 1.05;
 }
 
+.sim-player-token {
+  --sim-position-color: #f2c94c;
+}
+
+.sim-player-position-fw,
+.sim-position-fw {
+  --sim-position-color: #ff826c;
+}
+
+.sim-player-position-mf,
+.sim-position-mf {
+  --sim-position-color: #51d88a;
+}
+
+.sim-player-position-df,
+.sim-position-df {
+  --sim-position-color: #62b6ff;
+}
+
+.sim-player-position-gk,
+.sim-position-gk {
+  --sim-position-color: #f2c94c;
+}
+
 .sim-player-home .sim-player-disc::after,
 .sim-player-away .sim-player-disc::after {
-  border: 2px solid #0d5a42;
-  bottom: -2px;
-  content: "";
-  height: 8px;
+  bottom: -7px;
+  color: var(--sim-position-color);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
   position: absolute;
-  right: -2px;
-  width: 8px;
+  right: -5px;
+  text-shadow:
+    0 1px 0 #06100c,
+    0 0 4px rgba(0, 0, 0, 0.9);
 }
 
 .sim-player-home .sim-player-disc::after {
-  background: var(--lime);
-  border-radius: 50%;
+  content: "▲";
 }
 
 .sim-player-away .sim-player-disc {
@@ -2276,8 +2332,7 @@ button:disabled {
 }
 
 .sim-player-away .sim-player-disc::after {
-  background: var(--coral);
-  border-radius: 2px;
+  content: "▼";
 }
 
 .sim-player-name {
@@ -2753,6 +2808,10 @@ button:disabled {
 
   .sim-team-legend span {
     justify-content: center;
+  }
+
+  .sim-position-legend {
+    padding: 0 8px;
   }
 
   .sim-pitch {

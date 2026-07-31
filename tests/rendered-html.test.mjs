@@ -38,6 +38,10 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.match(html, /id="sim-away-team"/i);
   assert.match(html, /South Korea(?:<!-- -->)? 공격 ↑/i);
   assert.match(html, /Brazil(?:<!-- -->)? 공격 ↓/i);
+  assert.match(
+    html,
+    /aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"/i,
+  );
   assert.match(html, /초기 공 위치·소유/i);
   assert.match(html, /패스 지시/i);
   assert.match(html, /장면 길이/i);
@@ -52,6 +56,22 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.equal(playerButtons.length, 22);
   assert.equal(homePlayers.length, 11);
   assert.equal(awayPlayers.length, 11);
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-gk/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-df/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-mf/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-fw/i,
+  );
   assert.match(html, /<button[^>]*data-sim-ball/i);
   assert.match(
     html,
