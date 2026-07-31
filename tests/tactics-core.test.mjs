@@ -5,6 +5,7 @@ import {
   analyzeShape,
   clampPitchPosition,
   createPlacements,
+  mergePlacementOverrides,
   mirrorFormationSlots,
   pickPlacements,
   replacePlacements,
@@ -44,6 +45,28 @@ test("preserves the grabbed point while dragging a player token", () => {
     x: 50,
     y: 50,
   });
+});
+
+test("applies only current bounded player placement overrides", () => {
+  const defaults = {
+    homeGk: { role: "GK", x: 50, y: 90 },
+    homeSt: { role: "ST", x: 50, y: 20 },
+  };
+
+  assert.deepEqual(
+    mergePlacementOverrides(defaults, {
+      homeSt: { x: 104, y: 40 },
+      stalePlayer: { x: 20, y: 20 },
+    }),
+    {
+      homeGk: { role: "GK", x: 50, y: 90 },
+      homeSt: { role: "ST", x: PITCH_BOUNDS.maxX, y: 40 },
+    },
+  );
+  assert.notEqual(
+    mergePlacementOverrides(defaults, {}).homeGk,
+    defaults.homeGk,
+  );
 });
 
 test("creates one immutable slot per unique starting player", () => {

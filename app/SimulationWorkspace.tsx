@@ -6,11 +6,16 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  clamp,
+  mergePlacementOverrides,
   mirrorFormationSlots,
   toPitchPosition,
+  toPitchPositionWithOffset,
 } from "../lib/tactics-core.js";
 import {
   selectDefaultLineup,
@@ -52,7 +57,19 @@ type Placement = PitchPoint & {
 };
 
 type PlacementMap = Record<string, Placement>;
+type PlacementOverrideMap = Record<string, PitchPoint>;
 type ManualRouteMap = Record<string, PitchPoint[]>;
+
+type DragState = {
+  participantId: ParticipantId;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  grabOffsetX: number;
+  grabOffsetY: number;
+  moved: boolean;
+  originalOverride?: PitchPoint;
+};
 
 type PassInstruction = {
   id: string;
@@ -341,6 +358,10 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   );
   const [selectedParticipantId, setSelectedParticipantId] =
     useState<ParticipantId | null>(null);
+  const [placementOverrides, setPlacementOverrides] =
+    useState<PlacementOverrideMap>({});
+  const [draggingParticipantId, setDraggingParticipantId] =
+    useState<ParticipantId | null>(null);
   const [manualRoutes, setManualRoutes] = useState<ManualRouteMap>({});
   const [ballOwnerId, setBallOwnerId] = useState<ParticipantId | "">("");
   const [passFromId, setPassFromId] = useState<ParticipantId | "">("");
@@ -357,6 +378,8 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   );
 
   const pitchRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const suppressClickRef = useRef<ParticipantId | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const cursorRef = useRef(0);
 
@@ -390,7 +413,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     [lineupState.away, lineupState.home],
   );
   const homeParticipants = lineupState.home;
-  const placements = useMemo(
+  const defaultPlacements = useMemo(
     () =>
       createPlacements(
         lineupState.home,
@@ -399,6 +422,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         awayFormation,
       ),
     [awayFormation, homeFormation, lineupState.away, lineupState.home],
+  );
+  const placements = useMemo(
+    () =>
+      mergePlacementOverrides(
+        defaultPlacements,
+        placementOverrides,
+      ) as PlacementMap,
+    [defaultPlacements, placementOverrides],
   );
   const participantsById = useMemo(
     () =>
@@ -568,9 +599,208 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setBallOwnerId("");
     setPassFromId("");
     setPassTargetId("");
+    setPlacementOverrides({});
     setManualRoutes({});
     setPasses([]);
     invalidateCompilation("라인업 변경을 반영했습니다. 기존 지시는 초기화됩니다.");
+  }
+
+  function clampToVisiblePitch(x: number, y: number) {
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return {
+        x: clamp(x, 6, 94),
+        y: clamp(y, 6, 94),
+      } as PitchPoint;
+    }
+
+    const rect = pitch.getBoundingClientRect();
+    const horizontalInset = Math.max(6, (35 / rect.width) * 100);
+    const verticalInset = Math.max(6, (34 / rect.height) * 100);
+    return {
+      x: clamp(x, horizontalInset, 100 - horizontalInset),
+      y: clamp(y, verticalInset, 100 - verticalInset),
+    } as PitchPoint;
+  }
+
+  function updatePlayerPosition(
+    participantId: ParticipantId,
+    clientX: number,
+    clientY: number,
+    grabOffsetX = 0,
+    grabOffsetY = 0,
+  ) {
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return;
+    }
+
+    const rawPosition = toPitchPositionWithOffset(
+      clientX,
+      clientY,
+      pitch.getBoundingClientRect(),
+      grabOffsetX,
+      grabOffsetY,
+    ) as PitchPoint;
+    const nextPosition = clampToVisiblePitch(rawPosition.x, rawPosition.y);
+    setPlacementOverrides((current) => ({
+      ...current,
+      [participantId]: nextPosition,
+    }));
+  }
+
+  function handlePlayerPointerDown(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    participantId: ParticipantId,
+    displayedPosition: PitchPoint,
+  ) {
+    if (
+      isPlaying ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    event.stopPropagation();
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return;
+    }
+
+    const pitchRect = pitch.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedParticipantId(participantId);
+    setDraggingParticipantId(participantId);
+    dragRef.current = {
+      participantId,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      grabOffsetX:
+        ((event.clientX - pitchRect.left) / pitchRect.width) * 100 -
+        displayedPosition.x,
+      grabOffsetY:
+        ((event.clientY - pitchRect.top) / pitchRect.height) * 100 -
+        displayedPosition.y,
+      moved: false,
+      originalOverride: placementOverrides[participantId]
+        ? { ...placementOverrides[participantId] }
+        : undefined,
+    };
+  }
+
+  function handlePlayerPointerMove(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const movement = Math.hypot(
+      event.clientX - drag.startClientX,
+      event.clientY - drag.startClientY,
+    );
+    if (!drag.moved && movement < 4) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!drag.moved) {
+      invalidateCompilation();
+    }
+    drag.moved = true;
+    updatePlayerPosition(
+      drag.participantId,
+      event.clientX,
+      event.clientY,
+      drag.grabOffsetX,
+      drag.grabOffsetY,
+    );
+  }
+
+  function finishPlayerDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    cancelled = false,
+  ) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const participant = participantsById.get(drag.participantId);
+    if (cancelled) {
+      setPlacementOverrides((current) => {
+        const next = { ...current };
+        if (drag.originalOverride) {
+          next[drag.participantId] = drag.originalOverride;
+        } else {
+          delete next[drag.participantId];
+        }
+        return next;
+      });
+      setStatusMessage("선수 시작 위치 이동을 취소했습니다.");
+    } else if (drag.moved) {
+      updatePlayerPosition(
+        drag.participantId,
+        event.clientX,
+        event.clientY,
+        drag.grabOffsetX,
+        drag.grabOffsetY,
+      );
+      suppressClickRef.current = drag.participantId;
+      window.setTimeout(() => {
+        if (suppressClickRef.current === drag.participantId) {
+          suppressClickRef.current = null;
+        }
+      }, 0);
+      invalidateCompilation(
+        `${participant?.player.name ?? "선수"}의 시작 위치를 변경했습니다.`,
+      );
+    }
+
+    setDraggingParticipantId(null);
+    dragRef.current = null;
+  }
+
+  function handlePlayerKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    participantId: ParticipantId,
+  ) {
+    const direction = {
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 },
+    }[event.key];
+
+    if (!direction || isPlaying) {
+      return;
+    }
+
+    event.preventDefault();
+    const currentPlacement = placements[participantId];
+    if (!currentPlacement) {
+      return;
+    }
+    const distance = event.shiftKey ? 5 : 2;
+    const nextPosition = clampToVisiblePitch(
+      currentPlacement.x + direction.x * distance,
+      currentPlacement.y + direction.y * distance,
+    );
+    const participant = participantsById.get(participantId);
+    setSelectedParticipantId(participantId);
+    setPlacementOverrides((current) => ({
+      ...current,
+      [participantId]: nextPosition,
+    }));
+    invalidateCompilation(
+      `${participant?.player.name ?? "선수"}의 시작 위치를 방향키로 변경했습니다.`,
+    );
   }
 
   function handlePitchClick(event: MouseEvent<HTMLDivElement>) {
@@ -615,6 +845,18 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       return next;
     });
     invalidateCompilation("선택한 선수의 수동 경로를 삭제했습니다.");
+  }
+
+  function resetSelectedPlacement() {
+    if (!effectiveSelectedParticipantId || isPlaying) {
+      return;
+    }
+    setPlacementOverrides((current) => {
+      const next = { ...current };
+      delete next[effectiveSelectedParticipantId];
+      return next;
+    });
+    invalidateCompilation("선택한 선수의 시작 위치를 포메이션 기본값으로 되돌렸습니다.");
   }
 
   function addPassInstruction() {
@@ -668,12 +910,13 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           participant.participantId !== defaultOwner?.participantId,
       ) ?? homeParticipants[0];
     setManualRoutes({});
+    setPlacementOverrides({});
     setPasses([]);
     setBallOwnerId(defaultOwner?.participantId ?? "");
     setPassFromId(defaultOwner?.participantId ?? "");
     setPassTargetId(defaultTarget?.participantId ?? "");
     setPassAtMs(1_000);
-    invalidateCompilation("모든 이동·패스 지시를 초기화했습니다.");
+    invalidateCompilation("모든 초기 배치·이동·패스 지시를 초기화했습니다.");
   }
 
   function buildRun() {
@@ -1038,9 +1281,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             </span>
           </div>
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
-            우리 팀 선수를 선택한 뒤 경기장의 빈 지점을 누르면 순서대로 수동
-            경로가 추가됩니다. 상대 팀과 지시받지 않은 선수는 자동으로
-            반응합니다.
+            선수 토큰을 드래그하면 시작 위치가 바뀝니다. 우리 팀 선수를
+            선택한 뒤 경기장의 빈 지점을 누르면 이후 수동 경로가 순서대로
+            추가됩니다. 상대 팀과 지시받지 않은 선수는 자동으로 반응합니다.
           </p>
           <div
             ref={pitchRef}
@@ -1108,6 +1351,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 participant.participantId === effectiveSelectedParticipantId;
               const isManual =
                 (manualRoutes[participant.participantId]?.length ?? 0) > 0;
+              const hasCustomPlacement = Boolean(
+                placementOverrides[participant.participantId],
+              );
+              const isDragging =
+                participant.participantId === draggingParticipantId;
               const tokenStyle = {
                 left: `${position.x}%`,
                 top: `${position.y}%`,
@@ -1124,6 +1372,8 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       : "sim-player-away",
                     isSelected ? "sim-player-selected" : "",
                     isManual ? "sim-player-manual" : "sim-player-automatic",
+                    hasCustomPlacement ? "sim-player-custom-position" : "",
+                    isDragging ? "sim-player-dragging" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
@@ -1131,11 +1381,18 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   aria-pressed={isSelected}
                   aria-label={
                     participant.teamSide === "home"
-                      ? `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 선택 후 경기장을 눌러 경로 지정`
-                      : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 자동 반응 선수 정보 보기`
+                      ? `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 선택 후 경기장을 눌러 경로 지정`
+                      : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 자동 반응 선수 정보 보기`
                   }
+                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (
+                      suppressClickRef.current === participant.participantId
+                    ) {
+                      suppressClickRef.current = null;
+                      return;
+                    }
                     setSelectedParticipantId(participant.participantId);
                     setStatusMessage(
                       `${participant.player.name} 선수를 선택했습니다.${
@@ -1145,6 +1402,19 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       }`,
                     );
                   }}
+                  onKeyDown={(event) =>
+                    handlePlayerKeyDown(event, participant.participantId)
+                  }
+                  onPointerDown={(event) =>
+                    handlePlayerPointerDown(
+                      event,
+                      participant.participantId,
+                      position,
+                    )
+                  }
+                  onPointerMove={handlePlayerPointerMove}
+                  onPointerUp={(event) => finishPlayerDrag(event)}
+                  onPointerCancel={(event) => finishPlayerDrag(event, true)}
                 >
                   <span className="sim-player-disc">
                     <small>{participant.role}</small>
@@ -1246,6 +1516,16 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   onClick={clearSelectedRoute}
                 >
                   선택 선수 경로 삭제
+                </button>
+              ) : null}
+
+              {placementOverrides[selectedParticipant.participantId] ? (
+                <button
+                  type="button"
+                  disabled={isPlaying}
+                  onClick={resetSelectedPlacement}
+                >
+                  선택 선수 시작 위치 초기화
                 </button>
               ) : null}
 
