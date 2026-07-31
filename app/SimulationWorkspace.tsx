@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  PITCH_BOUNDS,
   clamp,
   mergePlacementOverrides,
   mirrorFormationSlots,
@@ -628,14 +629,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const pitch = pitchRef.current;
     if (!pitch) {
       return {
-        x: clamp(x, 6, 94),
-        y: clamp(y, 6, 94),
+        x: clamp(x, PITCH_BOUNDS.minX, PITCH_BOUNDS.maxX),
+        y: clamp(y, PITCH_BOUNDS.minY, PITCH_BOUNDS.maxY),
       } as PitchPoint;
     }
 
     const rect = pitch.getBoundingClientRect();
-    const horizontalInset = Math.max(6, (35 / rect.width) * 100);
-    const verticalInset = Math.max(6, (34 / rect.height) * 100);
+    const horizontalInset = Math.max(PITCH_BOUNDS.minX, (35 / rect.width) * 100);
+    const verticalInset = Math.max(PITCH_BOUNDS.minY, (34 / rect.height) * 100);
     return {
       x: clamp(x, horizontalInset, 100 - horizontalInset),
       y: clamp(y, verticalInset, 100 - verticalInset),
@@ -646,14 +647,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const pitch = pitchRef.current;
     if (!pitch) {
       return {
-        x: clamp(x, 2, 98),
-        y: clamp(y, 2, 98),
+        x: clamp(x, PITCH_BOUNDS.minX, PITCH_BOUNDS.maxX),
+        y: clamp(y, PITCH_BOUNDS.minY, PITCH_BOUNDS.maxY),
       } as PitchPoint;
     }
 
     const rect = pitch.getBoundingClientRect();
-    const horizontalInset = Math.max(2, (10 / rect.width) * 100);
-    const verticalInset = Math.max(2, (10 / rect.height) * 100);
+    const horizontalInset = Math.max(PITCH_BOUNDS.minX, (10 / rect.width) * 100);
+    const verticalInset = Math.max(PITCH_BOUNDS.minY, (10 / rect.height) * 100);
     return {
       x: clamp(x, horizontalInset, 100 - horizontalInset),
       y: clamp(y, verticalInset, 100 - verticalInset),

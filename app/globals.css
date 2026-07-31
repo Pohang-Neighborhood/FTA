@@ -2351,14 +2351,14 @@ button:disabled {
   border: 0;
   cursor: grab;
   display: flex;
-  height: 38px;
+  height: 48px;
   justify-content: center;
   padding: 0;
   position: absolute;
   touch-action: none;
   transform: translate(-50%, -50%);
   user-select: none;
-  width: 38px;
+  width: 48px;
   z-index: 9;
 }
 
@@ -2784,7 +2784,7 @@ button:disabled {
     display: block;
   }
 
-  .sim-ball-token {
+  .sim-ball-token > span {
     height: 13px;
     width: 13px;
   }

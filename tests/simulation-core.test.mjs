@@ -8,6 +8,7 @@ import {
   sampleSimulation,
   summarizeSimulation,
 } from "../lib/simulation-core.js";
+import { PITCH_BOUNDS } from "../lib/tactics-core.js";
 
 const defaultAbilities = {
   speed: 72,
@@ -163,11 +164,65 @@ test("compiles exactly 22 bounded players at deterministic 50ms ticks", () => {
     for (const player of Object.values(frame.players)) {
       assert.ok(Number.isFinite(player.position.x));
       assert.ok(Number.isFinite(player.position.y));
-      assert.ok(player.position.x >= 0 && player.position.x <= 100);
-      assert.ok(player.position.y >= 0 && player.position.y <= 100);
+      assert.ok(
+        player.position.x >= PITCH_BOUNDS.minX &&
+          player.position.x <= PITCH_BOUNDS.maxX,
+      );
+      assert.ok(
+        player.position.y >= PITCH_BOUNDS.minY &&
+          player.position.y <= PITCH_BOUNDS.maxY,
+      );
     }
-    assert.ok(frame.ball.position.x >= 0 && frame.ball.position.x <= 100);
-    assert.ok(frame.ball.position.y >= 0 && frame.ball.position.y <= 100);
+    assert.ok(
+      frame.ball.position.x >= PITCH_BOUNDS.minX &&
+        frame.ball.position.x <= PITCH_BOUNDS.maxX,
+    );
+    assert.ok(
+      frame.ball.position.y >= PITCH_BOUNDS.minY &&
+        frame.ball.position.y <= PITCH_BOUNDS.maxY,
+    );
+  }
+});
+
+test("keeps edge-seeking players and the ball inside render-safe bounds", () => {
+  const run = compileSimulation(
+    createScenario({
+      players: createPlayers({
+        homeOverrides: {
+          "home:st": { position: { x: 0, y: 100 } },
+        },
+      }),
+      initialBallOwnerId: undefined,
+      initialBallPosition: { x: 100, y: 0 },
+      manualRoutes: [
+        {
+          playerId: "home:st",
+          startAtMs: 0,
+          waypoints: [{ x: 0, y: 100 }],
+        },
+      ],
+    }),
+  );
+
+  for (const frame of run.frames) {
+    for (const player of Object.values(frame.players)) {
+      assert.ok(
+        player.position.x >= PITCH_BOUNDS.minX &&
+          player.position.x <= PITCH_BOUNDS.maxX,
+      );
+      assert.ok(
+        player.position.y >= PITCH_BOUNDS.minY &&
+          player.position.y <= PITCH_BOUNDS.maxY,
+      );
+    }
+    assert.ok(
+      frame.ball.position.x >= PITCH_BOUNDS.minX &&
+        frame.ball.position.x <= PITCH_BOUNDS.maxX,
+    );
+    assert.ok(
+      frame.ball.position.y >= PITCH_BOUNDS.minY &&
+        frame.ball.position.y <= PITCH_BOUNDS.maxY,
+    );
   }
 });
 
