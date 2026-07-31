@@ -463,6 +463,51 @@ test("cancels a pass when the instructed passer has no possession", () => {
   assert.equal(summarizeSimulation(run).passes.cancelled, 1);
 });
 
+test("starts a deterministic loose ball at a user-defined pitch position", () => {
+  const scenario = createScenario({
+    initialBallOwnerId: undefined,
+    initialBallPosition: { x: 27, y: 63 },
+    manualRoutes: [],
+  });
+  const first = compileSimulation(scenario);
+  const second = compileSimulation(scenario);
+
+  assert.equal(first.frames[0].ball.kind, "loose");
+  assert.deepEqual(first.frames[0].ball.position, { x: 27, y: 63 });
+  assert.deepEqual(first, second);
+});
+
+test("requires exactly one initial ball source", () => {
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallPosition: { x: 50, y: 50 },
+        }),
+      ),
+    /either initialBallOwnerId or initialBallPosition/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallOwnerId: undefined,
+        }),
+      ),
+    /either initialBallOwnerId or initialBallPosition/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallOwnerId: undefined,
+          initialBallPosition: { x: -1, y: 50 },
+        }),
+      ),
+    /initialBallPosition must stay inside/,
+  );
+});
+
 test("samples interpolated frames and summarizes distance and shape changes", () => {
   const run = compileSimulation(createScenario());
   const sampled = sampleSimulation(run, 75);

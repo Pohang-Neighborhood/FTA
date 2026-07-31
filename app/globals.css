@@ -2345,6 +2345,24 @@ button:disabled {
 }
 
 .sim-ball-token {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: grab;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+  user-select: none;
+  width: 38px;
+  z-index: 9;
+}
+
+.sim-ball-token > span {
   background:
     radial-gradient(circle at 35% 30%, #fff 0 24%, transparent 25%),
     conic-gradient(
@@ -2361,12 +2379,41 @@ button:disabled {
   box-shadow:
     0 4px 8px rgba(0, 0, 0, 0.5),
     0 0 0 3px rgba(255, 255, 255, 0.16);
+  display: block;
   height: 15px;
   pointer-events: none;
-  position: absolute;
-  transform: translate(-50%, -50%);
+  transition:
+    box-shadow 150ms ease,
+    transform 150ms ease;
   width: 15px;
-  z-index: 9;
+}
+
+.sim-ball-token:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.sim-ball-token:focus-visible {
+  outline: 0;
+}
+
+.sim-ball-token:focus-visible > span {
+  box-shadow:
+    0 0 0 3px #07100d,
+    0 0 0 6px var(--focus),
+    0 4px 8px rgba(0, 0, 0, 0.5);
+}
+
+.sim-ball-dragging {
+  cursor: grabbing;
+  z-index: 12;
+}
+
+.sim-ball-dragging > span {
+  box-shadow:
+    0 8px 14px rgba(0, 0, 0, 0.58),
+    0 0 0 4px rgba(216, 255, 79, 0.3);
+  transform: scale(1.28);
 }
 
 .sim-status {

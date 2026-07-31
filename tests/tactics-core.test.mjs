@@ -7,12 +7,37 @@ import {
   createPlacements,
   mergePlacementOverrides,
   mirrorFormationSlots,
+  nearestPlacementId,
   pickPlacements,
   replacePlacements,
   substitutePlayer,
   toPitchPosition,
   toPitchPositionWithOffset,
 } from "../lib/tactics-core.js";
+
+test("finds the closest player to a dropped ball in rendered pitch space", () => {
+  const placements = {
+    "home:left": { x: 40, y: 50 },
+    "home:right": { x: 60, y: 50 },
+  };
+
+  assert.equal(
+    nearestPlacementId(
+      { x: 42, y: 50 },
+      placements,
+      { width: 600, height: 900 },
+    ),
+    "home:left",
+  );
+  assert.equal(
+    nearestPlacementId(
+      { x: 50, y: 20 },
+      placements,
+      { width: 600, height: 900 },
+    ),
+    null,
+  );
+});
 
 const slots = [
   { role: "GK", x: 50, y: 90 },
