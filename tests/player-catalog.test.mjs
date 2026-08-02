@@ -9,6 +9,7 @@ import {
   projectSimulatorTeams,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
+import { sortLineupCandidates } from "../lib/lineup-editor.js";
 
 const baseAbilities = Object.freeze({
   overall: 70,
@@ -339,4 +340,34 @@ test("projects the complete ability dataset into simulator teams", async () => {
     JSON.stringify(teams),
     /provenance|isInferred|secondaryPosition|"foot"/,
   );
+
+  const catalog = teams.flatMap((team) => team.players);
+  for (const team of teams) {
+    const lineup = selectDefaultLineup(catalog, {
+      teamId: team.id,
+      teamSide: "home",
+      formationSlots,
+    });
+    const selectedPlayerIds = lineup.map(
+      (participant) => participant.player.id,
+    );
+    assert.equal(lineup.length, 11);
+    assert.equal(new Set(selectedPlayerIds).size, 11);
+
+    for (const participant of lineup) {
+      const candidates = sortLineupCandidates(
+        team.players,
+        selectedPlayerIds,
+        participant.role,
+      );
+      assert.ok(candidates.length > 0, `${team.name} ${participant.role}`);
+      assert.ok(
+        candidates.every(({ player }) =>
+          participant.role === "GK"
+            ? player.position === "GK"
+            : player.position !== "GK",
+        ),
+      );
+    }
+  }
 });
