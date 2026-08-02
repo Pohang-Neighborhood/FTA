@@ -2203,10 +2203,112 @@ button:disabled {
   stroke-width: 2.5;
 }
 
+.sim-route-carry {
+  filter:
+    drop-shadow(0 0 2px rgba(255, 208, 82, 0.75))
+    drop-shadow(0 0 5px rgba(216, 255, 79, 0.35));
+  stroke: #ffd052;
+  stroke-width: 3.5;
+}
+
+.sim-route-pass {
+  stroke: #76ddff;
+  stroke-width: 2;
+}
+
+.sim-route-pass-plan {
+  opacity: 0.48;
+  stroke-dasharray: 2 4;
+}
+
+.sim-route-pass-result {
+  filter: drop-shadow(0 0 3px rgba(118, 221, 255, 0.5));
+  opacity: 0.94;
+  stroke-dasharray: 6 2;
+}
+
 .sim-route-automatic {
   opacity: 0.47;
   stroke-dasharray: 5 4;
   stroke-width: 1.5;
+}
+
+.sim-route-cancelled {
+  filter: drop-shadow(0 0 3px rgba(255, 128, 100, 0.45));
+  opacity: 0.72;
+  stroke: #ff8064;
+  stroke-dasharray: 2 4;
+}
+
+.sim-waypoint {
+  align-items: center;
+  background: #07100d;
+  border: 2px solid var(--lime);
+  border-radius: 50%;
+  color: var(--lime);
+  display: flex;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  font-weight: 850;
+  height: 22px;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  z-index: 3;
+}
+
+.sim-waypoint-carry {
+  border-color: #ffd052;
+  color: #ffd052;
+}
+
+.sim-waypoint-cancelled {
+  border-color: #ff8064;
+  color: #ff8064;
+}
+
+.sim-target-cursor {
+  align-items: center;
+  appearance: none;
+  background: rgba(7, 16, 13, 0.28);
+  border: 2px dashed #fff;
+  border-radius: 50%;
+  color: #fff;
+  cursor: crosshair;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  z-index: 6;
+}
+
+.sim-target-cursor span {
+  font-size: 21px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.sim-target-cursor:focus-visible {
+  border-style: solid;
+  box-shadow:
+    0 0 0 3px #07100d,
+    0 0 0 6px var(--focus);
+  outline: 0;
+}
+
+.sim-pitch-targeting-movement {
+  box-shadow:
+    0 0 0 2px rgba(216, 255, 79, 0.52),
+    0 35px 80px rgba(0, 0, 0, 0.32);
+}
+
+.sim-pitch-targeting-pass {
+  cursor: default;
 }
 
 .sim-player-token {
@@ -2422,6 +2524,27 @@ button:disabled {
   transform: translateY(-2px) scale(1.08);
 }
 
+.sim-player-pass-target .sim-player-disc {
+  animation: sim-target-pulse 1.2s ease-in-out infinite alternate;
+  border-style: dashed;
+  box-shadow:
+    0 0 0 4px rgba(118, 221, 255, 0.28),
+    0 7px 14px rgba(0, 0, 0, 0.4);
+}
+
+.sim-player-invalid-target {
+  opacity: 0.58;
+}
+
+@keyframes sim-target-pulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
 .sim-player-selected .sim-player-disc {
   background: var(--lime);
   border-color: #f4ffbe;
@@ -2534,6 +2657,307 @@ button:disabled {
   min-height: 36px;
   padding: 10px 14px;
   text-align: center;
+}
+
+.sr-only {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.sim-instruction-editor,
+.sim-instruction-queue {
+  background: #0b1411;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+  padding: 14px;
+}
+
+.sim-instruction-editor > header,
+.sim-instruction-queue > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.sim-instruction-editor h4,
+.sim-instruction-editor p,
+.sim-instruction-queue h4,
+.sim-instruction-queue p {
+  margin: 0;
+}
+
+.sim-instruction-editor h4,
+.sim-instruction-queue h4 {
+  font-size: 14px;
+  letter-spacing: -0.025em;
+}
+
+.sim-instruction-kicker {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 3px !important;
+  text-transform: uppercase;
+}
+
+.sim-instruction-editor button,
+.sim-instruction-queue button {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 780;
+  min-height: 44px;
+  padding: 0 10px;
+}
+
+.sim-instruction-editor button:not(:disabled):hover,
+.sim-instruction-queue button:not(:disabled):hover {
+  border-color: var(--lime);
+}
+
+.sim-instruction-editor > header > button {
+  min-height: 34px;
+}
+
+.sim-instruction-actor {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  margin-top: 13px !important;
+}
+
+.sim-instruction-actor strong {
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sim-instruction-actor span {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 7px;
+}
+
+.sim-action-picker {
+  border: 0;
+  margin: 13px 0 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.sim-action-picker legend,
+.sim-instruction-time > span {
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sim-action-picker > div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 7px;
+}
+
+.sim-action-picker button[aria-pressed="true"] {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #07100d;
+}
+
+.sim-instruction-time {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.sim-instruction-time input,
+.sim-instruction-queue input {
+  background: #07100d;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 9px;
+  width: 100%;
+}
+
+.sim-form-help {
+  color: var(--muted);
+  display: block;
+  font-size: 7px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.sim-action-draft,
+.sim-action-idle,
+.sim-action-empty,
+.sim-opponent-notice {
+  background: rgba(216, 255, 79, 0.055);
+  border: 1px solid rgba(216, 255, 79, 0.14);
+  border-radius: 10px;
+  color: var(--muted-strong);
+  font-size: 8px;
+  line-height: 1.5;
+  margin-top: 12px !important;
+  padding: 10px;
+}
+
+.sim-action-draft strong,
+.sim-opponent-notice strong {
+  color: var(--lime);
+  font-size: 9px;
+}
+
+.sim-action-draft p,
+.sim-opponent-notice p {
+  margin-top: 4px;
+}
+
+.sim-action-draft > div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 9px;
+}
+
+.sim-action-draft > div button:first-child {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #07100d;
+}
+
+.sim-opponent-notice {
+  background: rgba(255, 128, 100, 0.06);
+  border-color: rgba(255, 128, 100, 0.16);
+}
+
+.sim-opponent-notice strong {
+  color: var(--coral);
+}
+
+.sim-instruction-queue {
+  border-top-color: rgba(216, 255, 79, 0.28);
+}
+
+.sim-instruction-queue > header p {
+  color: var(--muted);
+  font-size: 7px;
+  margin-top: 3px;
+}
+
+.sim-instruction-queue > header > span {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+}
+
+.sim-pass-path-note {
+  background: rgba(118, 221, 255, 0.055);
+  border-left: 2px solid #76ddff;
+  color: var(--muted-strong);
+  font-size: 7px;
+  line-height: 1.45;
+  margin-top: 10px !important;
+  padding: 6px 8px;
+}
+
+.sim-instruction-queue ol {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.sim-instruction-queue li {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) 68px;
+  padding: 9px;
+}
+
+.sim-instruction-queue li.sim-instruction-cancelled {
+  border-color: rgba(255, 128, 100, 0.55);
+}
+
+.sim-instruction-order {
+  align-items: center;
+  background: rgba(216, 255, 79, 0.12);
+  border-radius: 50%;
+  color: var(--lime);
+  display: flex;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  font-weight: 850;
+  height: 25px;
+  justify-content: center;
+  width: 25px;
+}
+
+.sim-instruction-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sim-instruction-summary strong {
+  font-size: 9px;
+}
+
+.sim-instruction-summary span {
+  color: var(--muted-strong);
+  font-size: 7px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.sim-instruction-summary .sim-instruction-warning {
+  color: #ff9a82;
+  font-weight: 760;
+}
+
+.sim-instruction-actions {
+  display: grid;
+  gap: 6px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sim-instruction-actions button {
+  min-height: 36px;
+}
+
+.sim-instruction-empty {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+  margin-top: 12px !important;
 }
 
 .sim-player-card {
@@ -2960,6 +3384,21 @@ button:disabled {
   .sim-live-player-metrics,
   .sim-ability-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sim-action-picker > div,
+  .sim-action-draft > div,
+  .sim-instruction-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sim-instruction-queue li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .sim-instruction-queue li > label,
+  .sim-instruction-actions {
+    grid-column: 1 / -1;
   }
 }
 

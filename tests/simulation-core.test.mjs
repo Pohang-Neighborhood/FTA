@@ -92,6 +92,15 @@ function createScenario(overrides = {}) {
   };
 }
 
+function createInstructionScenario(instructions, overrides = {}) {
+  return createScenario({
+    ...overrides,
+    manualRoutes: undefined,
+    passes: undefined,
+    instructions,
+  });
+}
+
 function allEvents(run) {
   return run.frames.flatMap((frame) => frame.events);
 }
@@ -297,6 +306,203 @@ test("does not complete a short delayed route before its start tick", () => {
     x: 50.05,
     y: 24,
   });
+});
+
+test("keeps legacy routes compatible with canonical move instructions", () => {
+  const legacy = compileSimulation(createScenario());
+  const canonical = compileSimulation(
+    createInstructionScenario([
+      {
+        id: "move-st",
+        order: 0,
+        type: "move",
+        playerId: "home:st",
+        atMs: 0,
+        waypoints: [
+          { x: 40, y: 36 },
+          { x: 62, y: 36 },
+        ],
+      },
+    ]),
+  );
+
+  assert.deepEqual(canonical, legacy);
+});
+
+test("sorts canonical instructions independently of their input array order", () => {
+  const instructions = [
+    {
+      id: "carry-before-pass",
+      order: 0,
+      type: "carry",
+      playerId: "home:st",
+      atMs: 0,
+      waypoints: [{ x: 50, y: 24 }],
+    },
+    {
+      id: "pass-after-carry",
+      order: 1,
+      type: "pass",
+      playerId: "home:st",
+      targetPlayerId: "home:lcm",
+      atMs: 0,
+    },
+    {
+      id: "move-lcm",
+      order: 2,
+      type: "move",
+      playerId: "home:lcm",
+      atMs: 500,
+      waypoints: [{ x: 30, y: 44 }],
+    },
+  ];
+
+  const ordered = compileSimulation(
+    createInstructionScenario(instructions, { durationMs: 2_000 }),
+  );
+  const shuffled = compileSimulation(
+    createInstructionScenario(instructions.toReversed(), {
+      durationMs: 2_000,
+    }),
+  );
+
+  assert.deepEqual(shuffled, ordered);
+  assert.equal(
+    allEvents(ordered).some(
+      (event) => event.type === "instruction_cancelled",
+    ),
+    false,
+  );
+});
+
+test("dispatches a later motion at its own tick after the prior route completes", () => {
+  const run = compileSimulation(
+    createInstructionScenario(
+      [
+        {
+          id: "settle",
+          order: 0,
+          type: "move",
+          playerId: "home:st",
+          atMs: 0,
+          waypoints: [{ x: 50.05, y: 24 }],
+        },
+        {
+          id: "second-run",
+          order: 1,
+          type: "move",
+          playerId: "home:st",
+          atMs: 500,
+          waypoints: [{ x: 60, y: 24 }],
+        },
+      ],
+      { durationMs: 1_000 },
+    ),
+  );
+  const beforeDispatch = run.frames.find((frame) => frame.elapsedMs === 450);
+  const dispatchFrame = run.frames.find((frame) => frame.elapsedMs === 500);
+  const afterDispatch = run.frames.find((frame) => frame.elapsedMs === 550);
+
+  assert.deepEqual(beforeDispatch.players["home:st"].position, {
+    x: 50.05,
+    y: 24,
+  });
+  assert.deepEqual(
+    dispatchFrame.players["home:st"].position,
+    beforeDispatch.players["home:st"].position,
+  );
+  assert.ok(afterDispatch.players["home:st"].position.x > 50.05);
+});
+
+test("cancels an overlapping motion instead of replacing its active route", () => {
+  const run = compileSimulation(
+    createInstructionScenario(
+      [
+        {
+          id: "long-run",
+          order: 0,
+          type: "move",
+          playerId: "home:st",
+          atMs: 0,
+          waypoints: [{ x: 10, y: 24 }],
+        },
+        {
+          id: "overlap",
+          order: 1,
+          type: "move",
+          playerId: "home:st",
+          atMs: 50,
+          waypoints: [{ x: 90, y: 24 }],
+        },
+      ],
+      { durationMs: 1_000 },
+    ),
+  );
+  const cancellation = allEvents(run).find(
+    (event) =>
+      event.type === "instruction_cancelled" &&
+      event.instructionId === "overlap",
+  );
+
+  assert.deepEqual(cancellation, {
+    type: "instruction_cancelled",
+    instructionId: "overlap",
+    instructionType: "move",
+    playerId: "home:st",
+    atMs: 50,
+    reason: "player_busy",
+  });
+  assert.ok(run.frames.at(-1).players["home:st"].position.x < 50);
+});
+
+test("requires possession for carry instructions and keeps a valid carry on the ball", () => {
+  const cancelledRun = compileSimulation(
+    createInstructionScenario(
+      [
+        {
+          id: "invalid-carry",
+          order: 0,
+          type: "carry",
+          playerId: "home:lcm",
+          atMs: 0,
+          waypoints: [{ x: 34, y: 35 }],
+        },
+      ],
+      { durationMs: 1_000 },
+    ),
+  );
+  const cancellation = allEvents(cancelledRun).find(
+    (event) => event.type === "instruction_cancelled",
+  );
+
+  assert.equal(cancellation.instructionId, "invalid-carry");
+  assert.equal(cancellation.reason, "no_possession");
+  assert.deepEqual(
+    cancelledRun.frames.at(-1).players["home:lcm"].position,
+    cancelledRun.frames[0].players["home:lcm"].position,
+  );
+
+  const carryRun = compileSimulation(
+    createInstructionScenario(
+      [
+        {
+          id: "valid-carry",
+          order: 0,
+          type: "carry",
+          playerId: "home:st",
+          atMs: 0,
+          waypoints: [{ x: 50, y: 16 }],
+        },
+      ],
+      { durationMs: 1_000 },
+    ),
+  );
+
+  for (const frame of carryRun.frames) {
+    assert.equal(frame.ball.kind, "controlled");
+    assert.equal(frame.ball.ownerId, "home:st");
+    assert.deepEqual(frame.ball.position, frame.players["home:st"].position);
+  }
 });
 
 test("moves unassigned home support and assigns away pressure, cover, block, and goalkeeper reactions", () => {
@@ -680,5 +886,80 @@ test("rejects malformed team, route, and tick inputs", () => {
         }),
       ),
     /Only home players/,
+  );
+});
+
+test("rejects mixed, opponent, and malformed canonical instructions", () => {
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          instructions: [],
+        }),
+      ),
+    /either instructions or legacy manualRoutes\/passes/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createInstructionScenario([
+          {
+            id: "away-move",
+            order: 0,
+            type: "move",
+            playerId: "away:st",
+            atMs: 0,
+            waypoints: [{ x: 50, y: 50 }],
+          },
+        ]),
+      ),
+    /Only home players/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createInstructionScenario([
+          {
+            id: "away-pass-target",
+            order: 0,
+            type: "pass",
+            playerId: "home:st",
+            targetPlayerId: "away:st",
+            atMs: 0,
+          },
+        ]),
+      ),
+    /Only home-to-home/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createInstructionScenario([
+          {
+            id: "off-tick",
+            order: 0,
+            type: "move",
+            playerId: "home:st",
+            atMs: 25,
+            waypoints: [{ x: 50, y: 50 }],
+          },
+        ]),
+      ),
+    /must align to a simulation tick/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createInstructionScenario([
+          {
+            id: "missing-target",
+            order: 0,
+            type: "pass",
+            playerId: "home:st",
+            atMs: 0,
+          },
+        ]),
+      ),
+    /unknown target player/,
   );
 });
