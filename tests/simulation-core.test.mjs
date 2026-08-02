@@ -904,6 +904,312 @@ test("moves unassigned home support and assigns away pressure, cover, block, and
   );
 });
 
+test("starts organized and enters defensive transition only after a turnover", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:st": { position: { x: 50, y: 68 } },
+      "home:lcm": { position: { x: 50, y: 34 } },
+    },
+    awayOverrides: {
+      "away:dm": {
+        position: { x: 50, y: 51 },
+        abilities: { ...defaultAbilities, defending: 95, reactions: 95 },
+      },
+    },
+  });
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 2_500,
+      players,
+      initialBallOwnerId: "home:st",
+      manualRoutes: [],
+      passes: [
+        {
+          id: "turnover-pass",
+          fromPlayerId: "home:st",
+          toPlayerId: "home:lcm",
+          atMs: 0,
+        },
+      ],
+    }),
+  );
+  const interception = allEvents(run).find(
+    (event) => event.type === "pass_intercepted",
+  );
+
+  assert.equal(run.frames[0].tactics.away.phase, "organized-defense");
+  assert.ok(interception);
+  assert.equal(
+    run.frames.find((frame) => frame.elapsedMs === interception.atMs).tactics
+      .home.phase,
+    "defensive-transition",
+  );
+  assert.equal(
+    run.frames.find(
+      (frame) => frame.elapsedMs === interception.atMs + 1_000,
+    ).tactics.home.phase,
+    "organized-defense",
+  );
+});
+
+test("keeps the remaining back line on one collective target after pressure and cover", () => {
+  const run = compileSimulation(
+    createScenario({ durationMs: 1_500, manualRoutes: [] }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 1_250);
+  const linePlayers = Object.values(frame.players).filter(
+    (player) =>
+      player.team === "away" &&
+      (player.behavior === "defensive-line" ||
+        player.behavior === "offside-line"),
+  );
+
+  assert.ok(linePlayers.length >= 2);
+  const lineTargets = linePlayers.map((player) => player.target.y);
+  assert.ok(Math.max(...lineTargets) - Math.min(...lineTargets) < 0.01);
+
+  const backLineDepths = ["away:lb", "away:lcb", "away:rcb", "away:rb"]
+    .map((playerId) => frame.players[playerId].position.y)
+    .sort((left, right) => left - right);
+  const actualMedian =
+    (backLineDepths[1] + backLineDepths[2]) / 2;
+  assert.ok(
+    Math.abs(frame.tactics.away.actualDefensiveLineY - actualMedian) < 0.000001,
+  );
+});
+
+test("moves the whole back line together when the offside condition is stable", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:lcm": { position: { x: 50, y: 60 } },
+    },
+  });
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "home:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 60 }],
+        },
+      ],
+    }),
+  );
+  const frame = run.frames.at(-1);
+  const backLineIds = ["away:lb", "away:lcb", "away:rcb", "away:rb"];
+
+  assert.equal(frame.tactics.away.offsideTrapActive, true);
+  assert.ok(
+    backLineIds.every(
+      (playerId) => frame.players[playerId].behavior === "offside-line",
+    ),
+  );
+});
+
+test("reports the offside line as active only after the back line adopts it", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:lcm": { position: { x: 50, y: 60 } },
+    },
+  });
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "home:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 60 }],
+        },
+      ],
+    }),
+  );
+  const requestedFrame = run.frames.find(
+    (frame) =>
+      frame.tactics.away.offsideTrapRequested &&
+      !frame.tactics.away.offsideTrapActive,
+  );
+  const activeFrame = run.frames.find(
+    (frame) => frame.tactics.away.offsideTrapActive,
+  );
+
+  assert.ok(requestedFrame);
+  assert.ok(
+    Object.values(requestedFrame.players)
+      .filter(
+        (player) =>
+          player.team === "away" &&
+          ["LB", "LCB", "RCB", "RB"].includes(player.role),
+      )
+      .every((player) => player.behavior !== "offside-line"),
+  );
+  assert.ok(activeFrame.elapsedMs > requestedFrame.elapsedMs);
+  assert.ok(
+    Object.values(activeFrame.players)
+      .filter(
+        (player) =>
+          player.team === "away" &&
+          ["LB", "LCB", "RCB", "RB"].includes(player.role),
+      )
+      .every((player) => player.behavior === "offside-line"),
+  );
+});
+
+test("keeps offside status aligned with stabilized back-line behavior", () => {
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 2_500,
+      players: createPlayers({
+        moveAwayFromPassLane: true,
+        homeOverrides: {
+          "home:lcm": { position: { x: 50, y: 60 } },
+          "home:rcm": { position: { x: 50, y: 30 } },
+        },
+      }),
+      initialBallOwnerId: "home:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 60 }],
+        },
+        {
+          playerId: "home:rcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 30 }],
+        },
+      ],
+      passes: [
+        {
+          id: "late-pass",
+          fromPlayerId: "home:lcm",
+          toPlayerId: "home:rcm",
+          atMs: 1_500,
+        },
+      ],
+    }),
+  );
+  const inFlightFrames = run.frames.filter(
+    (frame) => frame.ball.kind === "inFlight",
+  );
+
+  assert.ok(inFlightFrames.length > 0);
+  assert.ok(inFlightFrames.some((frame) => frame.tactics.away.offsideTrapActive));
+  assert.ok(inFlightFrames.some((frame) => !frame.tactics.away.offsideTrapActive));
+  for (const frame of inFlightFrames) {
+    const wholeBackLineUsesTrap = ["away:lb", "away:lcb", "away:rcb", "away:rb"]
+      .every((playerId) => frame.players[playerId].behavior === "offside-line");
+    assert.equal(frame.tactics.away.offsideTrapActive, wholeBackLineUsesTrap);
+  }
+});
+
+test("does not request an offside trap when a back-line player is manual", () => {
+  const players = createPlayers({
+    awayOverrides: {
+      "away:lcm": { position: { x: 50, y: 40 } },
+    },
+  });
+  const automaticRun = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "away:lcm",
+      manualRoutes: [],
+    }),
+  );
+  const manualRun = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "away:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lb",
+          startAtMs: 0,
+          waypoints: [{ x: 15, y: 73 }],
+        },
+      ],
+    }),
+  );
+
+  assert.ok(
+    automaticRun.frames.some(
+      (frame) => frame.tactics.home.offsideTrapRequested,
+    ),
+  );
+  assert.ok(
+    manualRun.frames.every(
+      (frame) =>
+        !frame.tactics.home.offsideTrapRequested &&
+        !frame.tactics.home.offsideTrapActive,
+    ),
+  );
+});
+
+test("keeps feasible automatic targets at least the configured distance apart", () => {
+  const players = createPlayers().map((player) => ({
+    ...player,
+    position: { x: 50, y: 50 },
+  }));
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 500,
+      players,
+      initialBallOwnerId: "home:st",
+      manualRoutes: [],
+    }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 250);
+
+  for (const team of ["home", "away"]) {
+    const targets = Object.values(frame.players)
+      .filter((player) => player.team === team && player.mode === "automatic")
+      .map((player) => player.target);
+    for (let left = 0; left < targets.length; left += 1) {
+      for (let right = left + 1; right < targets.length; right += 1) {
+        const dx = ((targets[left].x - targets[right].x) / 100) * 68;
+        const dy = ((targets[left].y - targets[right].y) / 100) * 105;
+        assert.ok(
+          Math.hypot(dx, dy) >= run.config.automaticMinimumSpacingM - 0.01,
+        );
+      }
+    }
+  }
+});
+
+test("reserves center backs for rest defense while the team attacks", () => {
+  const run = compileSimulation(
+    createScenario({ durationMs: 500, manualRoutes: [] }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 250);
+
+  assert.equal(frame.players["home:lcb"].behavior, "rest-defense");
+  assert.equal(frame.players["home:rcb"].behavior, "rest-defense");
+});
+
+test("holds pressure ownership through the configured hysteresis window", () => {
+  const run = compileSimulation(createScenario({ durationMs: 1_250 }));
+  const pressureAt = (elapsedMs) =>
+    Object.values(
+      run.frames.find((frame) => frame.elapsedMs === elapsedMs).players,
+    )
+      .filter(
+        (player) =>
+          player.team === "away" && player.behavior === "pressure",
+      )
+      .map((player) => player.id)
+      .sort();
+
+  assert.ok(pressureAt(500).length > 0);
+  assert.deepEqual(pressureAt(500), pressureAt(750));
+  assert.deepEqual(pressureAt(500), pressureAt(1_000));
+});
+
 test("turns fullback overlap and underlap presets into distinct bounded lanes", () => {
   const compileFullback = (presetId) =>
     compileSimulation(
@@ -1171,6 +1477,75 @@ test("moves an independent pass to its receiver and summarizes the reception", (
     cancelled: 0,
     recovered: 0,
   });
+});
+
+test("starts a second pass one tick after the first pass is received", () => {
+  const players = createPlayers({
+    moveAwayFromPassLane: true,
+    homeOverrides: {
+      "home:st": { position: { x: 10, y: 62 } },
+      "home:lcm": { position: { x: 10, y: 42 } },
+      "home:rcm": { position: { x: 10, y: 22 } },
+    },
+  });
+  const firstPass = {
+    id: "chain-pass-one",
+    order: 0,
+    type: "pass",
+    playerId: "home:st",
+    targetPlayerId: "home:lcm",
+    atMs: 0,
+  };
+  const scenario = {
+    durationMs: 4_000,
+    players,
+    initialBallOwnerId: "home:st",
+  };
+  const firstRun = compileSimulation({
+    ...scenario,
+    sequences: [
+      {
+        id: "chain-sequence",
+        order: 1,
+        name: "연속 패스",
+        instructions: [firstPass],
+      },
+    ],
+  });
+  const firstReception = allEvents(firstRun).find(
+    (event) =>
+      event.type === "pass_received" && event.passId === firstPass.id,
+  );
+  assert.ok(firstReception);
+  const secondPassAtMs = firstReception.atMs + SIMULATION_TICK_MS;
+  const run = compileSimulation({
+    ...scenario,
+    sequences: [
+      {
+        id: "chain-sequence",
+        order: 1,
+        name: "연속 패스",
+        instructions: [
+          firstPass,
+          {
+            id: "chain-pass-two",
+            order: 1,
+            type: "pass",
+            playerId: "home:lcm",
+            targetPlayerId: "home:rcm",
+            atMs: secondPassAtMs,
+          },
+        ],
+      },
+    ],
+  });
+  const secondStart = allEvents(run).find(
+    (event) =>
+      event.type === "pass_started" && event.passId === "chain-pass-two",
+  );
+
+  assert.ok(secondStart);
+  assert.equal(secondStart.atMs, secondPassAtMs);
 });
 
 test("resolves a defender on the pass lane as a deterministic interception", () => {

@@ -21,6 +21,9 @@ FTA는 승률, 득점, 경기 결과를 예측하지 않습니다. 특정 선수
 - 시퀀스 순서와 시퀀스 내부 상대 시각을 이용한 행동 순서 지정
 - 지시받지 않은 우리 팀 선수의 지원·압박·커버·블록 자동 경로
 - 상대 팀 11명의 공 위치·소유권 기반 자동 반응
+- 빌드업·전진 전개·파이널 서드·수비 전환·조직 수비 경기 국면 판정
+- 수비라인 공동 이동, 조건부 오프사이드 라인과 공격 시 후방 균형 유지
+- 압박·커버 역할 최소 유지 시간과 자동 목표 간격·감속 제어
 - 초기 공 소유자와 경기장 선수 토큰을 이용한 패스 대상 지정
 - 이동 충돌·무소유 볼 운반 취소와 패스 수신·차단·미완료·루즈볼 회수 처리
 - 50ms 고정 물리 tick과 250ms 자동 전술 판단 주기를 분리하고, 동일 입력에 동일 결과를 보장하는 결정론적 계산
@@ -77,11 +80,13 @@ lib/
 ├── player-catalog.js       # 선수 투영과 선발 구성
 ├── player-tactical-role.js # 선수 역할 프리셋, 세부 성향, 버전 직렬화와 유지 규칙
 ├── simulation-core.js      # 결정론적 이동·공·패스 엔진
+├── team-tactical-phase.js  # 공 소유와 위치 기반 팀 경기 국면 모델
 └── tactics-core.js         # 좌표와 포메이션 기초 계산
 tests/
 ├── instruction-model.test.mjs # 시퀀스·지시 순서와 직렬화 호환 테스트
 ├── player-catalog.test.mjs # 실제 데이터 투영과 선발 테스트
 ├── player-tactical-role.test.mjs # 역할 프리셋, 유지 규칙과 직렬화 테스트
+├── team-tactical-phase.test.mjs # 경기 국면과 수비 조직 상태 테스트
 ├── simulation-core.test.mjs # 엔진 행동과 결정성 테스트
 └── rendered-html.test.mjs   # 빌드 산출물 및 SSR smoke 테스트
 ```

@@ -24,6 +24,7 @@ import {
   appendTacticalInstruction,
   createDefaultTacticalSequence,
   isMovementInstruction,
+  nextSequentialInstructionTimeMs,
   reorderTacticalSequence,
   removeTacticalInstruction,
   removeTacticalSequence,
@@ -328,6 +329,27 @@ type SimulationFrame = {
       }
     >;
   };
+  tactics: Record<
+    TeamSide,
+    {
+      phase:
+        | "loose-ball"
+        | "build-up"
+        | "progression"
+        | "final-third"
+        | "defensive-transition"
+        | "organized-defense";
+      inPossession: boolean;
+      progress: number | null;
+      actualDefensiveLineY: number | null;
+      defensiveLineY: number;
+      defensiveWidth: number;
+      pressureCount: number;
+      restDefenseCount: number;
+      offsideTrapRequested: boolean;
+      offsideTrapActive: boolean;
+    }
+  >;
   events: SimulationEvent[];
 };
 
@@ -506,6 +528,21 @@ const automaticBehaviorLabels: Record<string, string> = {
   "ball-carrier-shoot": "슈팅 준비",
   "goalkeeper-support": "후방 빌드업 지원",
   "goalkeeper-reaction": "골문 대응",
+  "rest-defense": "후방 균형",
+  "defensive-line": "수비라인 유지",
+  "offside-line": "오프사이드 라인",
+};
+
+const tacticalPhaseLabels: Record<
+  SimulationFrame["tactics"][TeamSide]["phase"],
+  string
+> = {
+  "loose-ball": "루즈볼 경합",
+  "build-up": "후방 빌드업",
+  "progression": "전진 전개",
+  "final-third": "파이널 서드",
+  "defensive-transition": "수비 전환",
+  "organized-defense": "조직 수비",
 };
 
 function preferredTeamId(
@@ -1399,6 +1436,25 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     return cancellations;
   }, [routeRun]);
+  const instructionCompletedAtMsById = useMemo(() => {
+    const terminals = new Map<string, number>();
+    const events =
+      instructionPreviewRun?.frames.flatMap(
+        (candidate) => candidate.events,
+      ) ?? [];
+    for (const event of events) {
+      const instructionId =
+        event.type === "instruction_completed"
+          ? event.instructionId
+          : event.type === "pass_received"
+            ? event.passId
+            : undefined;
+      if (instructionId && Number.isFinite(event.atMs)) {
+        terminals.set(instructionId, event.atMs);
+      }
+    }
+    return terminals;
+  }, [instructionPreviewRun]);
   const plannedMovementPaths = useMemo(() => {
     const lastPositionByPlayer = new Map<string, PitchPoint>(
       Object.entries(placements).map(([participantId, placement]) => [
@@ -2966,15 +3022,24 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       sequence?.instructions.filter(
         (instruction) => instruction.id !== activeAction.instructionId,
       ) ?? [];
-    const atMs =
-      mode === "simultaneous" || otherInstructions.length === 0
-        ? 0
-        : normalizedSequenceOffset(
-            Math.max(
-              ...otherInstructions.map((instruction) => instruction.atMs),
-            ) + SIMULATION_TICK_MS,
+    const nextSequentialAtMs =
+      mode === "after" && otherInstructions.length > 0
+        ? nextSequentialInstructionTimeMs(
+            otherInstructions,
+            instructionCompletedAtMsById,
+            instructionPreviewRun?.sequenceTimeline?.find(
+              (timeline) => timeline.id === activeAction.sequenceId,
+            )?.startedAtMs ?? 0,
             durationMs,
-          );
+          )
+        : 0;
+    if (nextSequentialAtMs === null) {
+      setStatusMessage(
+        "앞 액션이 정상 완료되지 않았거나 장면 길이 안에 끝나지 않아 연결할 수 없습니다.",
+      );
+      return;
+    }
+    const atMs = nextSequentialAtMs;
     const draft = { ...activeAction, atMs };
     setActiveAction(draft);
     if (draft.type !== "pass" && draft.instructionId) {
@@ -4494,6 +4559,23 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
               </span>
             </div>
+            {frame ? (
+              <div
+                className="sim-phase-legend"
+                aria-label="현재 팀 전술 국면"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <span className="sim-phase-home">
+                  {homeTeam?.name}: {tacticalPhaseLabels[frame.tactics.home.phase]}
+                  {frame.tactics.home.offsideTrapActive ? " · 오프사이드 라인" : ""}
+                </span>
+                <span className="sim-phase-away">
+                  {awayTeam?.name}: {tacticalPhaseLabels[frame.tactics.away.phase]}
+                  {frame.tactics.away.offsideTrapActive ? " · 오프사이드 라인" : ""}
+                </span>
+              </div>
+            ) : null}
             <div
               className="sim-position-legend"
               aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"
@@ -4547,6 +4629,33 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               className="sim-penalty-box sim-penalty-box-bottom"
               aria-hidden="true"
             />
+
+            {frame
+              ? (["home", "away"] as const).map((teamSide) => {
+                  const tactics = frame.tactics[teamSide];
+                  if (tactics.inPossession || tactics.phase === "loose-ball") {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={`defensive-line:${teamSide}`}
+                      className={`sim-defensive-line sim-defensive-line-${teamSide}${tactics.offsideTrapActive ? " is-offside" : ""}`}
+                      style={
+                        {
+                          top: `${tactics.actualDefensiveLineY ?? tactics.defensiveLineY}%`,
+                        } as CSSProperties
+                      }
+                      aria-hidden="true"
+                    >
+                      <span>
+                        {tactics.offsideTrapActive
+                          ? "오프사이드 라인"
+                          : "수비라인"}
+                      </span>
+                    </div>
+                  );
+                })
+              : null}
 
             {selectedParticipant?.teamSide === "home" &&
             selectedSequence &&
@@ -5057,6 +5166,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={activeAction.atMs > 0}
                     onClick={() => setActiveActionTiming("after")}
                   >
                     앞 액션 다음
