@@ -90,7 +90,6 @@ type Placement = PitchPoint & {
 type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
 type SetupStep = "teams" | "formations" | "simulator";
-type PitchInteractionMode = "tactics" | "placement";
 type LineupSelection = {
   teamId: string;
   formationId: string;
@@ -763,16 +762,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     useState<ParticipantId | null>(null);
   const [placementOverrides, setPlacementOverrides] =
     useState<PlacementOverrideMap>({});
-  const [pitchInteractionMode, setPitchInteractionMode] =
-    useState<PitchInteractionMode>("tactics");
   const [draggingParticipantId, setDraggingParticipantId] =
     useState<ParticipantId | null>(null);
   const [sequences, setSequences] = useState<TacticalSequence[]>(
     createInitialSequences,
   );
-  const [selectedSequenceId, setSelectedSequenceId] = useState(
-    INITIAL_SEQUENCE_ID,
-  );
+  const [selectedSequenceId, setSelectedSequenceId] = useState("");
   const [activeAction, setActiveAction] = useState<ActionDraft | null>(null);
   const [selectedWaypointIndex, setSelectedWaypointIndex] = useState<
     number | null
@@ -1077,7 +1072,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     (sequence) => sequence.id === selectedSequenceId,
   )
     ? selectedSequenceId
-    : sortedSequences[0]?.id ?? INITIAL_SEQUENCE_ID;
+    : "";
   const selectedSequence = sortedSequences.find(
     (sequence) => sequence.id === effectiveSelectedSequenceId,
   );
@@ -1574,13 +1569,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setActiveAction(null);
     setSequences(initialSequences);
     resetSequenceHistory(initialSequences);
-    setSelectedSequenceId(INITIAL_SEQUENCE_ID);
+    setSelectedSequenceId("");
     setManualActionOffset(null);
     setTargetCursor({ x: 50, y: 50 });
     setBallOwnerId("");
     setInitialBallPosition(null);
     setPlacementOverrides({});
-    setPitchInteractionMode("tactics");
     dragRef.current = null;
     ballDragRef.current = null;
     suppressClickRef.current = null;
@@ -1810,7 +1804,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     if (
       isPlaying ||
       activeAction ||
-      pitchInteractionMode !== "placement" ||
+      Boolean(selectedSequence) ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
       return;
@@ -1944,7 +1938,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       !direction ||
       isPlaying ||
       activeAction ||
-      pitchInteractionMode !== "placement"
+      Boolean(selectedSequence)
     ) {
       return;
     }
@@ -2037,7 +2031,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     event.stopPropagation();
     const participant = participantsById.get(participantId);
     if (
-      pitchInteractionMode === "tactics" &&
+      selectedSequence &&
       participant?.teamSide === "home"
     ) {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -2071,6 +2065,10 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         ),
         moved: false,
       };
+      return;
+    }
+
+    if (selectedSequence) {
       return;
     }
 
@@ -2356,7 +2354,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       !direction ||
       isPlaying ||
       activeAction ||
-      pitchInteractionMode !== "placement"
+      Boolean(selectedSequence)
     ) {
       return;
     }
@@ -2610,20 +2608,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setStatusMessage(
       `${targetSequence.name}에서 ${participant.player.name}의 ${type === "carry" ? "볼 운반" : "이동"} 지점을 경기장에서 지정하세요.`,
     );
-  }
-
-  function handleBeginActionKeyDown(
-    event: KeyboardEvent<HTMLButtonElement>,
-    type: TacticalInstruction["type"],
-    instruction?: TacticalInstruction,
-    sequenceId = effectiveSelectedSequenceId,
-  ) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    beginAction(type, instruction, true, sequenceId);
   }
 
   function cancelActiveAction() {
@@ -3230,12 +3214,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const initialSequences = createInitialSequences();
     setSequences(initialSequences);
     resetSequenceHistory(initialSequences);
-    setSelectedSequenceId(INITIAL_SEQUENCE_ID);
+    setSelectedSequenceId("");
     setManualActionOffset(null);
     nextInstructionOrderRef.current = 1;
     nextSequenceIdRef.current = 2;
     setPlacementOverrides({});
-    setPitchInteractionMode("tactics");
     setBallOwnerId(defaultOwner?.participantId ?? "");
     setInitialBallPosition(null);
     invalidateCompilation("모든 초기 배치·이동·패스 지시를 초기화했습니다.");
@@ -3258,7 +3241,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     suppressSequenceHistoryRef.current = true;
     setSequences(restored);
     setSelectedSequenceId((current) =>
-      restored.some((sequence) => sequence.id === current)
+      current === ""
+        ? ""
+        : restored.some((sequence) => sequence.id === current)
         ? current
         : restored[0]?.id ?? INITIAL_SEQUENCE_ID,
     );
@@ -4008,38 +3993,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         </aside>
 
         <div className="sim-pitch-column">
-          <div className="sim-pitch-mode-switch" aria-label="경기장 조작 모드">
-            <button
-              type="button"
-              className={pitchInteractionMode === "tactics" ? "is-selected" : ""}
-              aria-pressed={pitchInteractionMode === "tactics"}
-              disabled={isPlaying || Boolean(activeAction)}
-              onClick={() => {
-                setPitchInteractionMode("tactics");
-                setStatusMessage(
-                  "전술 그리기: 우리 팀 선수를 목표 지점까지 바로 드래그하세요.",
-                );
-              }}
-            >
-              <strong>전술 그리기</strong>
-              <span>선수에서 바로 드래그</span>
-            </button>
-            <button
-              type="button"
-              className={pitchInteractionMode === "placement" ? "is-selected" : ""}
-              aria-pressed={pitchInteractionMode === "placement"}
-              disabled={isPlaying || Boolean(activeAction)}
-              onClick={() => {
-                setPitchInteractionMode("placement");
-                setStatusMessage(
-                  "시작 배치: 선수와 공을 드래그해 시퀀스 시작 위치를 조정하세요.",
-                );
-              }}
-            >
-              <strong>시작 배치</strong>
-              <span>선수·공 위치 조정</span>
-            </button>
-          </div>
           <div className="sim-tactical-legend">
             <div className="sim-team-legend" aria-label="팀과 공격 방향">
               <span className="sim-legend-home">
@@ -4068,10 +4021,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             </div>
           </div>
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
-            편집 중에는 선택한 시퀀스가 실제로 시작하는 선수·공 위치를 보여줍니다.
-            전술 그리기에서는 우리 팀 선수를 바로 드래그하세요. 공 소유자는
-            운반, 비소유자는 이동으로 저장되고, 공 소유자를 동료에게 놓으면
-            패스가 됩니다. 시작 위치를 바꿀 때만 시작 배치 모드를 사용합니다.
+            {selectedSequence
+              ? `${selectedSequence.name} 편집 중입니다. 우리 팀 선수를 드래그하면 공 소유자는 운반, 비소유자는 이동으로 저장되고, 공 소유자를 동료에게 놓으면 패스가 됩니다.`
+              : "시퀀스를 선택하지 않은 초기 배치 상태입니다. 선수와 공을 드래그해 시작 위치와 공 소유자를 정한 뒤 편집할 시퀀스를 선택하세요."}
           </p>
           <div
             ref={pitchRef}
@@ -4105,6 +4057,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             />
 
             {selectedParticipant?.teamSide === "home" &&
+            selectedSequence &&
             !isPlaying &&
             !activeAction ? (
               <div
@@ -4441,12 +4394,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                         : activeAction
                           ? `${participant.teamSide === "home" ? "우리 팀" : "상대 팀"} ${participant.player.name}. 현재 ${activeAction.type === "carry" ? "볼 운반" : "이동"} 목표 지정 중. 선수 위치 편집 잠금`
                           : participant.teamSide === "home"
-                            ? pitchInteractionMode === "tactics"
+                            ? selectedSequence
                               ? `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 목표 지점까지 드래그해 ${effectiveBallOwnerId === participant.participantId ? "볼 운반 또는 동료에게 패스" : "이동"} 지시 생성`
                               : `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동`
-                            : pitchInteractionMode === "placement"
-                              ? `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동`
-                              : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 자동 반응 선수 정보 보기`
+                            : selectedSequence
+                              ? `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 자동 반응 선수 정보 보기`
+                              : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동`
                   }
                   aria-keyshortcuts={
                     activeAction?.type === "pass"
@@ -4518,7 +4471,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               disabled={
                 isPlaying ||
                 Boolean(activeAction) ||
-                pitchInteractionMode !== "placement"
+                Boolean(selectedSequence)
               }
               aria-label={
                 !frame
@@ -4538,7 +4491,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   top: `${ballPosition.y}%`,
                   pointerEvents:
                     activeAction?.type === "pass" ||
-                    pitchInteractionMode === "tactics"
+                    Boolean(selectedSequence)
                       ? "none"
                       : undefined,
                 } as CSSProperties
@@ -4592,246 +4545,97 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         <aside className="sim-inspector" aria-labelledby="sim-inspector-title">
           <h3 id="sim-inspector-title">선수·장면 분석</h3>
 
-          <section
-            className="sim-instruction-editor"
-            aria-labelledby="sim-instruction-editor-title"
-          >
-            <header>
-              <div>
-                <p className="sim-instruction-kicker">Home team only</p>
-                <h4 id="sim-instruction-editor-title">선수 지시</h4>
-              </div>
-              {selectedParticipant ? (
-                <button
-                  type="button"
-                  disabled={isPlaying || Boolean(activeAction)}
-                  onClick={() => {
-                    setSelectedParticipantId(null);
-                    setActiveAction(null);
-                    setStatusMessage("선수 선택을 해제했습니다.");
-                  }}
-                >
-                  선택 해제
-                </button>
-              ) : null}
-            </header>
-
-            <label
-              className="sim-sequence-target"
-              htmlFor="sim-active-sequence"
+          {activeAction ? (
+            <section
+              className="sim-instruction-editor"
+              aria-labelledby="sim-instruction-editor-title"
             >
-              <span>지시를 추가할 시퀀스</span>
-              <select
-                id="sim-active-sequence"
-                value={effectiveSelectedSequenceId}
-                disabled={isPlaying || Boolean(activeAction)}
-                onChange={(event) => {
-                  setSelectedSequenceId(event.target.value);
-                  setManualActionOffset(null);
-                  setStatusMessage("지시를 추가할 시퀀스를 변경했습니다.");
-                }}
-              >
-                {sortedSequences.map((sequence, index) => (
-                  <option key={sequence.id} value={sequence.id}>
-                    {index + 1}. {sequence.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {selectedParticipant ? (
-              selectedParticipant.teamSide === "home" ? (
-                <>
-                  <p className="sim-instruction-actor">
-                    <strong>{selectedParticipant.player.name}</strong>
-                    <span>
-                      {selectedParticipant.role} · {selectedSequence?.name} 시작 후{" "}
-                      {seconds(nextActionAtMs)}
-                    </span>
+              <header>
+                <div>
+                  <p className="sim-instruction-kicker">
+                    {selectedSequence?.name}
                   </p>
-                  <fieldset
-                    className="sim-action-picker"
-                    disabled={
-                      isPlaying || Boolean(activeAction) || !selectedSequence
-                    }
-                  >
-                    <legend>적용할 액션</legend>
-                    <div>
-                      {(["move", "carry", "pass"] as const).map((type) => (
-                        <button
-                          type="button"
-                          key={type}
-                          aria-pressed={activeAction?.type === type}
-                          onClick={(event) =>
-                            beginAction(type, undefined, event.detail === 0)
-                          }
-                          onKeyDown={(event) =>
-                            handleBeginActionKeyDown(event, type)
-                          }
-                        >
-                          {type === "move"
-                            ? "이동"
-                            : type === "carry"
-                              ? "볼 운반"
-                              : "패스"}
-                        </button>
-                      ))}
-                    </div>
-                  </fieldset>
-
-                  <label
-                    className="sim-instruction-time"
-                    htmlFor="sim-action-time"
-                  >
-                    <span>시퀀스 시작 후 (초)</span>
-                    <input
-                      id="sim-action-time"
-                      type="number"
-                      min={0}
-                      max={(durationMs - SIMULATION_TICK_MS) / 1_000}
-                      step={SIMULATION_TICK_MS / 1_000}
-                      value={(activeAction?.atMs ?? nextActionAtMs) / 1_000}
-                      disabled={isPlaying}
-                      aria-describedby="sim-action-time-help"
-                      onChange={(event) => {
-                        const nextAtMs = normalizedSequenceOffset(
-                          Number(event.target.value) * 1_000,
-                          durationMs,
-                        );
-                        if (activeAction) {
-                          const draft = { ...activeAction, atMs: nextAtMs };
-                          setActiveAction(draft);
-                          if (
-                            draft.type !== "pass" &&
-                            draft.instructionId
-                          ) {
-                            saveMovementAction(draft, true);
-                          }
-                        } else if (effectiveSelectedParticipantId) {
-                          setManualActionOffset({
-                            sequenceId: effectiveSelectedSequenceId,
-                            playerId: effectiveSelectedParticipantId,
-                            atMs: nextAtMs,
-                          });
-                        }
-                      }}
-                    />
-                  </label>
-                  <small id="sim-action-time-help" className="sim-form-help">
-                    아래 빠른 순서 버튼을 사용하거나 필요할 때만 0.05초 단위의
-                    상대 시각을 직접 지정할 수 있습니다.
-                  </small>
-
-                  {activeAction ? (
-                    <div
-                      className="sim-action-draft"
-                      data-action={activeAction.type}
-                    >
-                      <strong>
-                        현재 액션 ·{" "}
-                        {activeAction.type === "move"
-                          ? "이동"
-                          : activeAction.type === "carry"
-                            ? "볼 운반"
-                            : "패스"}
-                      </strong>
-                      <p>
-                        {activeAction.type === "pass"
-                          ? "출발 선수에서 받을 선수까지 드래그하거나, Tab으로 받을 선수에 이동해 Enter를 누르세요."
-                          : `빈 경기장을 드래그해 경로를 그리고 지점을 직접 옮기세요. 현재 ${activeAction.waypoints.length}개 지점. 키보드는 Command 또는 Control+Enter로 완료합니다.`}
-                      </p>
-                      <div className="sim-action-timing-shortcuts">
-                        <button
-                          type="button"
-                          aria-pressed={activeAction.atMs === 0}
-                          onClick={() =>
-                            setActiveActionTiming("simultaneous")
-                          }
-                        >
-                          시퀀스와 동시
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveActionTiming("after")}
-                        >
-                          앞 액션 다음
-                        </button>
-                      </div>
-                      <div>
-                        {activeAction.type !== "pass" ? (
-                          <>
-                            {!activeAction.instructionId ? (
-                              <button
-                                type="button"
-                                onClick={completeMovementAction}
-                              >
-                                경로 완료
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              disabled={activeAction.waypoints.length === 0}
-                              onClick={removeLastDraftWaypoint}
-                            >
-                              마지막 지점 취소
-                            </button>
-                            <button
-                              type="button"
-                              disabled={selectedWaypointIndex === null}
-                              onClick={() => {
-                                if (selectedWaypointIndex !== null) {
-                                  deleteDraftWaypoint(selectedWaypointIndex);
-                                }
-                              }}
-                            >
-                              선택 지점 삭제
-                            </button>
-                          </>
-                        ) : null}
-                        {activeAction.instructionId ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              removeInstruction(
-                                activeAction.sequenceId,
-                                activeAction.instructionId!,
-                                true,
-                              )
-                            }
-                          >
-                            이 지시 삭제
-                          </button>
-                        ) : null}
-                        <button type="button" onClick={cancelActiveAction}>
-                          {activeAction.instructionId
-                            ? "편집 닫기"
-                            : "액션 취소"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="sim-action-idle">
-                      액션을 선택하면 경기장과 대상 선수 토큰이 입력 단계에 맞게
-                      강조됩니다.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <div className="sim-opponent-notice">
-                  <strong>{selectedParticipant.player.name}</strong>
-                  <p>
-                    상대 팀 선수는 직접 지시하지 않습니다. 우리 팀 지시에 맞춰
-                    압박·커버·패스 차단 위치를 자동으로 만듭니다.
-                  </p>
+                  <h4 id="sim-instruction-editor-title">
+                    {participantsById.get(activeAction.playerId)?.player.name} ·{" "}
+                    {activeAction.type === "move"
+                      ? "이동"
+                      : activeAction.type === "carry"
+                        ? "볼 운반"
+                        : "패스"}
+                  </h4>
                 </div>
-              )
-            ) : (
-              <p className="sim-action-empty">
-                경기장에서 우리 팀 선수를 선택하면 이동·볼 운반·패스 액션이
-                표시됩니다.
-              </p>
-            )}
-          </section>
+                <button type="button" onClick={cancelActiveAction}>
+                  {activeAction.instructionId ? "편집 닫기" : "액션 취소"}
+                </button>
+              </header>
+
+              <div className="sim-action-draft" data-action={activeAction.type}>
+                <p>
+                  {activeAction.type === "pass"
+                    ? "받을 선수까지 연결하세요."
+                    : `경로 지점을 직접 조정하세요. 현재 ${activeAction.waypoints.length}개 지점입니다.`}
+                </p>
+                <div className="sim-action-timing-shortcuts">
+                  <button
+                    type="button"
+                    aria-pressed={activeAction.atMs === 0}
+                    onClick={() => setActiveActionTiming("simultaneous")}
+                  >
+                    시퀀스와 동시
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveActionTiming("after")}
+                  >
+                    앞 액션 다음
+                  </button>
+                </div>
+                <div>
+                  {activeAction.type !== "pass" ? (
+                    <>
+                      {!activeAction.instructionId ? (
+                        <button type="button" onClick={completeMovementAction}>
+                          경로 완료
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={activeAction.waypoints.length === 0}
+                        onClick={removeLastDraftWaypoint}
+                      >
+                        마지막 지점 취소
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedWaypointIndex === null}
+                        onClick={() => {
+                          if (selectedWaypointIndex !== null) {
+                            deleteDraftWaypoint(selectedWaypointIndex);
+                          }
+                        }}
+                      >
+                        선택 지점 삭제
+                      </button>
+                    </>
+                  ) : null}
+                  {activeAction.instructionId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        removeInstruction(
+                          activeAction.sequenceId,
+                          activeAction.instructionId!,
+                          true,
+                        )
+                      }
+                    >
+                      이 지시 삭제
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <section
             className="sim-sequence-editor"
@@ -4905,9 +4709,17 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                         }
                         disabled={isPlaying || Boolean(activeAction)}
                         onClick={() => {
-                          setSelectedSequenceId(sequence.id);
+                          const isDeselecting =
+                            sequence.id === effectiveSelectedSequenceId;
+                          setSelectedSequenceId(
+                            isDeselecting ? "" : sequence.id,
+                          );
                           setManualActionOffset(null);
-                          setStatusMessage(`선택한 시퀀스: ${sequence.name}`);
+                          setStatusMessage(
+                            isDeselecting
+                              ? "시퀀스 선택을 해제했습니다. 초기 배치를 조정할 수 있습니다."
+                              : `선택한 시퀀스: ${sequence.name}`,
+                          );
                         }}
                       >
                         <span aria-hidden="true">{sequenceIndex + 1}</span>
