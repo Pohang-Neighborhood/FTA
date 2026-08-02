@@ -23,6 +23,7 @@ import {
   positionForFormationRole,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
+import { compactPlayerName } from "../lib/player-name.js";
 import {
   MAX_SIMULATION_DURATION_MS,
   SIMULATION_TICK_MS,
@@ -1689,7 +1690,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     <small>{participant.role}</small>
                     <strong>{participant.player.number}</strong>
                   </span>
-                  <span className="sim-player-name">{participant.player.name}</span>
+                  <span className="sim-player-name" aria-hidden="true">
+                    <span className="sim-player-name-short">
+                      {compactPlayerName(participant.player.name)}
+                    </span>
+                    <span className="sim-player-name-full">
+                      {participant.player.name}
+                    </span>
+                  </span>
                 </button>
               );
             })}
