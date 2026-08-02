@@ -67,8 +67,8 @@ test("activates a collective offside line only in stable central conditions", ()
     offsideTrapEligible: true,
   });
 
-  assert.equal(active.offsideTrapActive, true);
-  assert.equal(wide.offsideTrapActive, false);
+  assert.equal(active.offsideTrapRequested, true);
+  assert.equal(wide.offsideTrapRequested, false);
   assert.ok(active.defensiveLineY < wide.defensiveLineY);
 });
 
@@ -80,7 +80,7 @@ test("starts in an organized shape without inventing an initial turnover", () =>
   });
 
   assert.equal(state.phase, "organized-defense");
-  assert.equal(state.offsideTrapActive, false);
+  assert.equal(state.offsideTrapRequested, false);
 });
 
 test("keeps the offside line inactive without a controlled pressure trigger", () => {
@@ -91,7 +91,7 @@ test("keeps the offside line inactive without a controlled pressure trigger", ()
     offsideTrapEligible: false,
   });
 
-  assert.equal(state.offsideTrapActive, false);
+  assert.equal(state.offsideTrapRequested, false);
 });
 
 test("returns an explicit loose-ball state for both teams", () => {

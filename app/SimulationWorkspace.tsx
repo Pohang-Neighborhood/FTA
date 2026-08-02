@@ -345,6 +345,7 @@ type SimulationFrame = {
       defensiveWidth: number;
       pressureCount: number;
       restDefenseCount: number;
+      offsideTrapRequested: boolean;
       offsideTrapActive: boolean;
     }
   >;
@@ -1434,7 +1435,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     return cancellations;
   }, [routeRun]);
-  const instructionTerminalAtMsById = useMemo(() => {
+  const instructionCompletedAtMsById = useMemo(() => {
     const terminals = new Map<string, number>();
     const events =
       instructionPreviewRun?.frames.flatMap(
@@ -1442,13 +1443,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       ) ?? [];
     for (const event of events) {
       const instructionId =
-        event.type === "instruction_completed" ||
-        event.type === "instruction_cancelled"
+        event.type === "instruction_completed"
           ? event.instructionId
-          : event.type === "pass_received" ||
-              event.type === "pass_intercepted" ||
-              event.type === "pass_incomplete" ||
-              event.type === "pass_cancelled"
+          : event.type === "pass_received"
             ? event.passId
             : undefined;
       if (instructionId && Number.isFinite(event.atMs)) {
@@ -3024,17 +3021,24 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       sequence?.instructions.filter(
         (instruction) => instruction.id !== activeAction.instructionId,
       ) ?? [];
-    const atMs =
-      mode === "simultaneous" || otherInstructions.length === 0
-        ? 0
-        : nextSequentialInstructionTimeMs(
+    const nextSequentialAtMs =
+      mode === "after" && otherInstructions.length > 0
+        ? nextSequentialInstructionTimeMs(
             otherInstructions,
-            instructionTerminalAtMsById,
+            instructionCompletedAtMsById,
             instructionPreviewRun?.sequenceTimeline?.find(
               (timeline) => timeline.id === activeAction.sequenceId,
             )?.startedAtMs ?? 0,
             durationMs,
-          );
+          )
+        : 0;
+    if (nextSequentialAtMs === null) {
+      setStatusMessage(
+        "앞 액션이 정상 완료되지 않았거나 장면 길이 안에 끝나지 않아 연결할 수 없습니다.",
+      );
+      return;
+    }
+    const atMs = nextSequentialAtMs;
     const draft = { ...activeAction, atMs };
     setActiveAction(draft);
     if (draft.type !== "pass" && draft.instructionId) {
@@ -5161,6 +5165,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={activeAction.atMs > 0}
                     onClick={() => setActiveActionTiming("after")}
                   >
                     앞 액션 다음

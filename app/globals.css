@@ -4081,6 +4081,18 @@ button.sim-waypoint:focus-visible {
   color: #07100d;
 }
 
+.sim-action-draft .sim-action-timing-shortcuts button {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.sim-action-draft .sim-action-timing-shortcuts button[aria-pressed="true"] {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #07100d;
+}
+
 .sim-opponent-notice {
   background: rgba(255, 128, 100, 0.06);
   border-color: rgba(255, 128, 100, 0.16);

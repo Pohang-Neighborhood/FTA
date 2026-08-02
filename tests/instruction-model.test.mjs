@@ -79,7 +79,7 @@ test("places a sequential instruction after the previous action actually finishe
     pass({ id: "opening-pass", atMs: 0 }),
     movement({ id: "support-run", atMs: 100 }),
   ];
-  const terminalAtMsById = new Map([
+  const completedAtMsById = new Map([
     ["opening-pass", 850],
     ["support-run", 500],
   ]);
@@ -87,11 +87,32 @@ test("places a sequential instruction after the previous action actually finishe
   assert.equal(
     nextSequentialInstructionTimeMs(
       instructions,
-      terminalAtMsById,
+      completedAtMsById,
       200,
       12_000,
     ),
     700,
+  );
+});
+
+test("does not chain after an action without a successful completion", () => {
+  assert.equal(
+    nextSequentialInstructionTimeMs(
+      [movement()],
+      new Map(),
+      0,
+      12_000,
+    ),
+    null,
+  );
+  assert.equal(
+    nextSequentialInstructionTimeMs(
+      [movement()],
+      new Map([["instruction-1", 11_950]]),
+      0,
+      12_000,
+    ),
+    null,
   );
 });
 
