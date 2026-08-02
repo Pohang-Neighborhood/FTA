@@ -3571,14 +3571,14 @@ button.sim-waypoint:focus-visible {
   border: 0;
   cursor: grab;
   display: flex;
-  height: 48px;
+  height: 32px;
   justify-content: center;
   padding: 0;
   position: absolute;
   touch-action: none;
   transform: translate(-50%, -50%);
   user-select: none;
-  width: 48px;
+  width: 32px;
   z-index: 20;
 }
 
