@@ -110,6 +110,48 @@ function positionGroupClass(role: string) {
   return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
 }
 
+const FORMATION_ROLE_LABELS: Record<string, string> = {
+  GK: "골키퍼",
+  LB: "왼쪽 풀백",
+  LCB: "왼쪽 센터백",
+  CB: "센터백",
+  RCB: "오른쪽 센터백",
+  RB: "오른쪽 풀백",
+  LWB: "왼쪽 윙백",
+  RWB: "오른쪽 윙백",
+  LDM: "왼쪽 수비형 미드필더",
+  DM: "수비형 미드필더",
+  RDM: "오른쪽 수비형 미드필더",
+  LM: "왼쪽 미드필더",
+  LCM: "왼쪽 중앙 미드필더",
+  CM: "중앙 미드필더",
+  RCM: "오른쪽 중앙 미드필더",
+  RM: "오른쪽 미드필더",
+  LAM: "왼쪽 공격형 미드필더",
+  AM: "공격형 미드필더",
+  RAM: "오른쪽 공격형 미드필더",
+  LW: "왼쪽 윙어",
+  LST: "왼쪽 스트라이커",
+  ST: "스트라이커",
+  RST: "오른쪽 스트라이커",
+  RW: "오른쪽 윙어",
+};
+
+const PLAYER_POSITION_LABELS: Record<SimulatorPlayer["position"], string> = {
+  GK: "골키퍼",
+  DF: "수비수",
+  MF: "미드필더",
+  FW: "공격수",
+};
+
+function formationRoleLabel(role: string) {
+  return FORMATION_ROLE_LABELS[role] ?? role;
+}
+
+function playerPositionLabel(position: SimulatorPlayer["position"]) {
+  return PLAYER_POSITION_LABELS[position];
+}
+
 type DragState = {
   participantId: ParticipantId;
   pointerId: number;
@@ -637,6 +679,7 @@ function SetupFormationPreview({
             >
               <strong>{participant.player.number}</strong>
               <small>{participant.role}</small>
+              <em>{compactPlayerName(participant.player.name)}</em>
             </span>
           );
         })}
@@ -651,18 +694,47 @@ function SetupFormationPreview({
               <button
                 type="button"
                 aria-pressed={selectedSlotIndex === index}
-                aria-label={`${participant.role} 슬롯, ${participant.player.number}번 ${participant.player.name} 교체 대상 선택`}
+                aria-label={`${participant.role} ${formationRoleLabel(participant.role)} 슬롯, ${participant.player.number}번 ${participant.player.name} 교체 대상 선택`}
                 onClick={() => onSelectSlot(index)}
               >
-                <span>{participant.role}</span>
-                <strong>{participant.player.number}</strong>
-                <small>{compactPlayerName(participant.player.name)}</small>
+                <span className="sim-setup-lineup-role">
+                  <b>{participant.role}</b>
+                  <small>{formationRoleLabel(participant.role)}</small>
+                </span>
+                <strong className="sim-setup-lineup-number">
+                  {participant.player.number}
+                </strong>
+                <span className="sim-setup-lineup-identity">
+                  <small>{participant.player.name}</small>
+                  <em>
+                    {participant.player.position} · {participant.player.club}
+                  </em>
+                  <span className="sim-setup-name-tooltip" role="tooltip">
+                    {participant.player.name}
+                  </span>
+                </span>
               </button>
             ) : (
-              <div>
-                <span>{participant.role}</span>
-                <strong>{participant.player.number}</strong>
-                <small>{compactPlayerName(participant.player.name)}</small>
+              <div
+                tabIndex={0}
+                aria-label={`${participant.role} ${formationRoleLabel(participant.role)} 슬롯, ${participant.player.number}번 ${participant.player.name}, ${playerPositionLabel(participant.player.position)}, ${participant.player.club}`}
+              >
+                <span className="sim-setup-lineup-role">
+                  <b>{participant.role}</b>
+                  <small>{formationRoleLabel(participant.role)}</small>
+                </span>
+                <strong className="sim-setup-lineup-number">
+                  {participant.player.number}
+                </strong>
+                <span className="sim-setup-lineup-identity">
+                  <small>{participant.player.name}</small>
+                  <em>
+                    {participant.player.position} · {participant.player.club}
+                  </em>
+                  <span className="sim-setup-name-tooltip" role="tooltip">
+                    {participant.player.name}
+                  </span>
+                </span>
               </div>
             )}
           </li>
@@ -3932,13 +4004,36 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   {selectedDraftLineupParticipant ? (
                     <>
                       <div className="sim-lineup-selected-slot" aria-live="polite">
-                        <span>{selectedDraftLineupParticipant.role} 편집 대상</span>
-                        <strong>
-                          {selectedDraftLineupParticipant.player.number}. {selectedDraftLineupParticipant.player.name}
-                        </strong>
-                        <small>
-                          {selectedDraftLineupParticipant.player.position} · {selectedDraftLineupParticipant.player.club} · 종합 {selectedDraftLineupParticipant.player.abilities.overall}
-                        </small>
+                        <div className="sim-lineup-selected-identity">
+                          <span>
+                            <b>{selectedDraftLineupParticipant.role}</b>{" "}
+                            {formationRoleLabel(selectedDraftLineupParticipant.role)} 편집 대상
+                          </span>
+                          <strong>
+                            {selectedDraftLineupParticipant.player.number}. {selectedDraftLineupParticipant.player.name}
+                          </strong>
+                          <small>
+                            {selectedDraftLineupParticipant.player.position} · {selectedDraftLineupParticipant.player.club}
+                          </small>
+                        </div>
+                        <dl className="sim-lineup-selected-abilities" aria-label="선택 선수 주요 능력치">
+                          <div>
+                            <dt>종합</dt>
+                            <dd>{selectedDraftLineupParticipant.player.abilities.overall}</dd>
+                          </div>
+                          <div>
+                            <dt>속도</dt>
+                            <dd>{selectedDraftLineupParticipant.player.abilities.speed}</dd>
+                          </div>
+                          <div>
+                            <dt>패스</dt>
+                            <dd>{selectedDraftLineupParticipant.player.abilities.passing}</dd>
+                          </div>
+                          <div>
+                            <dt>수비</dt>
+                            <dd>{selectedDraftLineupParticipant.player.abilities.defending}</dd>
+                          </div>
+                        </dl>
                       </div>
 
                       <details className="sim-lineup-swap">
@@ -3958,7 +4053,10 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                                     aria-label={`${selectedDraftLineupParticipant.player.name} 선수와 ${participant.player.name} 선수의 ${selectedDraftLineupParticipant.role}, ${participant.role} 포지션 교환`}
                                     onClick={() => swapDraftHomeLineupPlayers(slotIndex)}
                                   >
-                                    <span>{participant.role}</span>
+                                    <span>
+                                      <b>{participant.role}</b>
+                                      <small>{formationRoleLabel(participant.role)}</small>
+                                    </span>
                                     <strong>
                                       {participant.player.number}. {participant.player.name}
                                     </strong>
@@ -4003,7 +4101,8 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                               onClick={() => replaceDraftHomeLineupPlayer(player.id)}
                             >
                               <span className="sim-bench-position">
-                                {player.position}
+                                <b>{player.position}</b>
+                                <small>{playerPositionLabel(player.position)}</small>
                               </span>
                               <span className="sim-bench-identity">
                                 <strong>{player.number}. {player.name}</strong>
@@ -4025,7 +4124,10 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                         ))
                       : setupHomeBenchPlayers.map((player) => (
                           <li key={player.id} className="sim-bench-roster-item">
-                            <span className="sim-bench-position">{player.position}</span>
+                            <span className="sim-bench-position">
+                              <b>{player.position}</b>
+                              <small>{playerPositionLabel(player.position)}</small>
+                            </span>
                             <span className="sim-bench-identity">
                               <strong>{player.number}. {player.name}</strong>
                               <small>{player.club}</small>
