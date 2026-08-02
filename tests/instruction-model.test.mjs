@@ -51,7 +51,6 @@ function sequence(overrides = {}) {
     id: "sequence-1",
     order: 1,
     name: "시퀀스 1",
-    startAtMs: 0,
     instructions: [movement()],
     ...overrides,
   };
@@ -143,7 +142,7 @@ test("rejects opponent actors and invalid pass targets", () => {
   );
 });
 
-test("creates an isolated default tactical sequence with timeline defaults", () => {
+test("creates an isolated default tactical sequence without a fixed start time", () => {
   const instructions = [movement({ atMs: 500 })];
   const created = createDefaultTacticalSequence({ instructions });
 
@@ -151,7 +150,6 @@ test("creates an isolated default tactical sequence with timeline defaults", () 
     id: "sequence-1",
     order: 1,
     name: "시퀀스 1",
-    startAtMs: 0,
     instructions,
   });
   created.instructions[0].waypoints[0].x = 12;
@@ -162,25 +160,22 @@ test("creates an isolated default tactical sequence with timeline defaults", () 
       id: "sequence-2",
       order: 2,
       name: "시퀀스 2",
-      startAtMs: 1_000,
     }),
     {
       id: "sequence-2",
       order: 2,
       name: "시퀀스 2",
-      startAtMs: 1_000,
       instructions: [],
     },
   );
 });
 
-test("sorts sequence slots while preserving relative instruction offsets", () => {
-  const first = sequence({ order: 7 });
+test("sorts sequence cards by order while preserving relative instruction offsets", () => {
+  const first = sequence({ order: 2 });
   const second = sequence({
     id: "sequence-2",
-    order: 7,
+    order: 1,
     name: "시퀀스 2",
-    startAtMs: 2_000,
     instructions: [pass({ atMs: 500 })],
   });
 
@@ -188,16 +183,15 @@ test("sorts sequence slots while preserving relative instruction offsets", () =>
   const validated = validateTacticalSequences([second, first]);
 
   assert.deepEqual(sorted.map((candidate) => candidate.id), [
-    "sequence-1",
     "sequence-2",
+    "sequence-1",
   ]);
   assert.deepEqual(validated.map((candidate) => candidate.id), [
-    "sequence-1",
     "sequence-2",
+    "sequence-1",
   ]);
   assert.deepEqual(validated.map((candidate) => candidate.order), [1, 2]);
-  assert.equal(validated[1].startAtMs, 2_000);
-  assert.equal(validated[1].instructions[0].atMs, 500);
+  assert.equal(validated[0].instructions[0].atMs, 500);
   const canonicalSerialized = serializeTacticalSequences([second, first]);
   assert.deepEqual(
     JSON.parse(canonicalSerialized).sequences.map(
@@ -213,36 +207,7 @@ test("sorts sequence slots while preserving relative instruction offsets", () =>
   );
 });
 
-test("keeps relative actions inside their sequence timeline slot", () => {
-  assert.throws(
-    () =>
-      validateTacticalSequences([
-        sequence({ instructions: [movement({ atMs: 1_000 })] }),
-        sequence({
-          id: "sequence-2",
-          order: 2,
-          name: "시퀀스 2",
-          startAtMs: 1_000,
-          instructions: [pass()],
-        }),
-      ]),
-    /must execute before the next sequence starts/,
-  );
-
-  const lastSequenceUnbounded = validateTacticalSequences([
-    sequence(),
-    sequence({
-      id: "sequence-2",
-      order: 2,
-      name: "시퀀스 2",
-      startAtMs: 1_000,
-      instructions: [pass({ atMs: 10_000 })],
-    }),
-  ]);
-  assert.equal(lastSequenceUnbounded[1].instructions[0].atMs, 10_000);
-});
-
-test("rejects invalid sequence timeline slots and globally duplicated ids", () => {
+test("rejects empty plans and globally duplicated ids", () => {
   assert.throws(
     () => validateTacticalSequences([]),
     /requires at least one tactical sequence/,
@@ -252,39 +217,10 @@ test("rejects invalid sequence timeline slots and globally duplicated ids", () =
     /requires at least one tactical sequence/,
   );
   assert.throws(
-    () => validateTacticalSequences([sequence({ startAtMs: 50 })]),
-    /must be 0 for the first sequence/,
-  );
-  assert.throws(
     () =>
       validateTacticalSequences([
         sequence(),
-        sequence({
-          id: "sequence-2",
-          order: 2,
-          instructions: [pass()],
-        }),
-      ]),
-    /must be later than the previous sequence/,
-  );
-  assert.throws(
-    () =>
-      validateTacticalSequences([
-        sequence(),
-        sequence({
-          id: "sequence-2",
-          order: 2,
-          startAtMs: 1_025,
-          instructions: [pass()],
-        }),
-      ]),
-    /non-negative simulation tick/,
-  );
-  assert.throws(
-    () =>
-      validateTacticalSequences([
-        sequence(),
-        sequence({ order: 2, startAtMs: 1_000, instructions: [pass()] }),
+        sequence({ order: 2, instructions: [pass()] }),
       ]),
     /duplicate id sequence-1/,
   );
@@ -295,7 +231,6 @@ test("rejects invalid sequence timeline slots and globally duplicated ids", () =
         sequence({
           id: "sequence-2",
           order: 2,
-          startAtMs: 1_000,
           instructions: [movement()],
         }),
       ]),
@@ -303,20 +238,18 @@ test("rejects invalid sequence timeline slots and globally duplicated ids", () =
   );
 });
 
-test("appends and replaces complete sequence cards", () => {
+test("appends and replaces complete ordered sequence cards", () => {
   const first = createDefaultTacticalSequence();
   const second = sequence({
     id: "sequence-2",
     order: 2,
     name: "침투",
-    startAtMs: 1_000,
     instructions: [pass()],
   });
   const added = appendTacticalSequence([first], second);
   const replaced = replaceTacticalSequence(added, {
     ...added[1],
     name: "후방 침투",
-    startAtMs: 1_500,
   });
 
   assert.deepEqual(added.map((candidate) => candidate.id), [
@@ -324,28 +257,25 @@ test("appends and replaces complete sequence cards", () => {
     "sequence-2",
   ]);
   assert.equal(replaced[1].name, "후방 침투");
-  assert.equal(replaced[1].startAtMs, 1_500);
   assert.throws(
     () => replaceTacticalSequence(added, { ...second, id: "unknown" }),
     /Unknown sequence id unknown/,
   );
 });
 
-test("reorders cards by swapping adjacent timeline slots", () => {
+test("reorders cards by swapping adjacent execution order", () => {
   const sequences = [
     sequence(),
     sequence({
       id: "sequence-2",
       order: 2,
       name: "시퀀스 2",
-      startAtMs: 1_000,
       instructions: [pass({ atMs: 0 })],
     }),
     sequence({
       id: "sequence-3",
       order: 3,
       name: "시퀀스 3",
-      startAtMs: 2_000,
       instructions: [movement({ id: "instruction-3", playerId: "home:rw" })],
     }),
   ];
@@ -357,9 +287,6 @@ test("reorders cards by swapping adjacent timeline slots", () => {
     "sequence-3",
     "sequence-2",
   ]);
-  assert.deepEqual(reordered.map((candidate) => candidate.startAtMs), [
-    0, 1_000, 2_000,
-  ]);
   assert.deepEqual(reordered.map((candidate) => candidate.order), [1, 2, 3]);
   assert.equal(reordered[1].instructions[0].id, "instruction-3");
   assert.deepEqual(
@@ -368,47 +295,18 @@ test("reorders cards by swapping adjacent timeline slots", () => {
   );
 });
 
-test("rejects a reorder when a card no longer fits its earlier timeline slot", () => {
-  const sequences = [
-    createDefaultTacticalSequence(),
-    sequence({
-      id: "sequence-2",
-      order: 2,
-      name: "시퀀스 2",
-      startAtMs: 1_000,
-      instructions: [pass({ atMs: 0 })],
-    }),
-    sequence({
-      id: "sequence-3",
-      order: 3,
-      name: "시퀀스 3",
-      startAtMs: 3_000,
-      instructions: [
-        movement({ id: "instruction-3", playerId: "home:rw", atMs: 2_500 }),
-      ],
-    }),
-  ];
-
-  assert.throws(
-    () => reorderTacticalSequence(sequences, "sequence-3", -1),
-    /must execute before the next sequence starts/,
-  );
-});
-
-test("removes only empty sequences and keeps a valid numbered timeline", () => {
+test("removes only empty sequences and keeps valid numbering", () => {
   const nonEmpty = sequence();
   const empty = sequence({
     id: "sequence-2",
     order: 2,
     name: "빈 시퀀스",
-    startAtMs: 1_000,
     instructions: [],
   });
   const last = sequence({
     id: "sequence-3",
     order: 3,
     name: "시퀀스 3",
-    startAtMs: 2_000,
     instructions: [pass()],
   });
 
@@ -439,17 +337,15 @@ test("removes only empty sequences and keeps a valid numbered timeline", () => {
     "sequence-1",
   );
   assert.equal(promoted[0].id, "sequence-3");
-  assert.equal(promoted[0].startAtMs, 0);
   assert.equal(promoted[0].order, 1);
 });
 
-test("serializes version 2 sequences canonically and restores isolated copies", () => {
+test("serializes version 3 sequences canonically and restores isolated copies", () => {
   const first = sequence();
   const second = sequence({
     id: "sequence-2",
     order: 2,
     name: "시퀀스 2",
-    startAtMs: 1_000,
     instructions: [pass({ atMs: 250 })],
   });
   const serialized = serializeTacticalSequences([second, first]);
@@ -476,7 +372,6 @@ test("migrates version 1 flat instructions into one equivalent sequence", () => 
     id: "sequence-1",
     order: 1,
     name: "시퀀스 1",
-    startAtMs: 0,
     instructions: flat,
   });
   assert.deepEqual(
@@ -489,9 +384,46 @@ test("migrates version 1 flat instructions into one equivalent sequence", () => 
   );
 });
 
+test("migrates version 2 fixed-time sequences by preserving order and offsets", () => {
+  const migrated = deserializeTacticalSequences(
+    JSON.stringify({
+      version: 2,
+      sequences: [
+        {
+          id: "sequence-1",
+          order: 1,
+          name: "전개",
+          startAtMs: 0,
+          instructions: [movement({ atMs: 250 })],
+        },
+        {
+          id: "sequence-2",
+          order: 2,
+          name: "침투",
+          startAtMs: 2_000,
+          instructions: [pass({ atMs: 500 })],
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(
+    migrated.map((candidate) => ({
+      id: candidate.id,
+      order: candidate.order,
+      atMs: candidate.instructions[0].atMs,
+      hasStartAtMs: Object.hasOwn(candidate, "startAtMs"),
+    })),
+    [
+      { id: "sequence-1", order: 1, atMs: 250, hasStartAtMs: false },
+      { id: "sequence-2", order: 2, atMs: 500, hasStartAtMs: false },
+    ],
+  );
+});
+
 test("rejects unsupported tactical sequence document versions", () => {
   assert.throws(
-    () => deserializeTacticalSequences(JSON.stringify({ version: 3 })),
+    () => deserializeTacticalSequences(JSON.stringify({ version: 4 })),
     /Unsupported tactical sequence version/,
   );
   assert.throws(
