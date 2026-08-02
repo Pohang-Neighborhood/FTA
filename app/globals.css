@@ -1965,7 +1965,7 @@ button:disabled {
 .sim-setup-preview {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 14px;
 }
 
@@ -1982,9 +1982,12 @@ button:disabled {
     #0b4c38;
   border: 1px solid rgba(244, 247, 238, 0.5);
   border-radius: 12px;
+  justify-self: center;
+  max-width: 280px;
   min-height: 280px;
   overflow: hidden;
   position: relative;
+  width: 100%;
 }
 
 .sim-setup-mini-pitch::before,
@@ -2057,6 +2060,26 @@ button:disabled {
   line-height: 1;
 }
 
+.sim-setup-mini-player em {
+  background: rgba(7, 16, 13, 0.92);
+  border: 1px solid rgba(244, 247, 238, 0.28);
+  border-radius: 999px;
+  color: var(--ink);
+  display: none;
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 750;
+  left: 50%;
+  max-width: 96px;
+  overflow: hidden;
+  padding: 3px 6px;
+  position: absolute;
+  text-overflow: ellipsis;
+  top: calc(100% + 5px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 .sim-setup-mini-player.is-selected {
   box-shadow:
     0 0 0 3px #07100d,
@@ -2064,9 +2087,13 @@ button:disabled {
   transform: translate(-50%, -50%) scale(1.12);
 }
 
+.sim-setup-mini-player.is-selected em {
+  display: block;
+}
+
 .sim-setup-lineup {
   display: grid;
-  gap: 4px;
+  gap: 7px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   list-style: none;
   margin: 0;
@@ -2078,7 +2105,7 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 8px;
   min-width: 0;
-  overflow: hidden;
+  position: relative;
 }
 
 .sim-setup-lineup li.is-selected {
@@ -2093,10 +2120,10 @@ button:disabled {
   border: 0;
   color: var(--ink);
   display: grid;
-  gap: 4px;
-  grid-template-columns: 24px 18px minmax(0, 1fr);
-  min-height: 31px;
-  padding: 6px;
+  gap: 10px;
+  grid-template-columns: 88px 28px minmax(0, 1fr);
+  min-height: 68px;
+  padding: 11px 12px;
   text-align: left;
   width: 100%;
 }
@@ -2113,25 +2140,92 @@ button:disabled {
   outline-offset: -3px;
 }
 
-.sim-setup-lineup li > button span,
-.sim-setup-lineup li > div span {
+.sim-setup-lineup li > div:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.sim-setup-lineup-role {
+  align-items: start;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sim-setup-lineup-role b {
   color: var(--lime);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 6px;
+  font-size: 11px;
+  font-weight: 900;
 }
 
-.sim-setup-lineup li > button strong,
-.sim-setup-lineup li > div strong {
-  font-size: 8px;
-}
-
-.sim-setup-lineup li > button small,
-.sim-setup-lineup li > div small {
+.sim-setup-lineup-role small {
   color: var(--muted-strong);
-  font-size: 7px;
+  font-size: 8px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.sim-setup-lineup-number {
+  font-size: 14px;
+  text-align: center;
+}
+
+.sim-setup-lineup-identity {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  position: relative;
+}
+
+.sim-setup-lineup-identity > small {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sim-setup-lineup-identity > em {
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-setup-name-tooltip {
+  background: #020806;
+  border: 1px solid var(--lime);
+  border-radius: 7px;
+  bottom: calc(100% + 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  color: var(--ink);
+  font-size: 11px;
+  left: 0;
+  max-width: 220px;
+  opacity: 0;
+  padding: 8px 10px;
+  pointer-events: none;
+  position: absolute;
+  transform: translateY(3px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  visibility: hidden;
+  white-space: normal;
+  z-index: 8;
+}
+
+.sim-setup-lineup li > button:hover .sim-setup-name-tooltip,
+.sim-setup-lineup li > button:focus-visible .sim-setup-name-tooltip,
+.sim-setup-lineup li > div:hover .sim-setup-name-tooltip,
+.sim-setup-lineup li > div:focus-visible .sim-setup-name-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .sim-lineup-editor {
@@ -2153,7 +2247,7 @@ button:disabled {
 }
 
 .sim-lineup-editor > header h4 {
-  font-size: 14px;
+  font-size: 17px;
   letter-spacing: -0.035em;
   margin-top: 3px;
 }
@@ -2165,10 +2259,10 @@ button:disabled {
   color: var(--ink);
   cursor: pointer;
   flex: 0 0 auto;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 750;
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 14px;
 }
 
 .sim-lineup-help,
@@ -2177,35 +2271,79 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 10px;
   margin: 12px 0 10px;
-  padding: 10px;
+  padding: 14px;
 }
 
 .sim-lineup-help {
   color: var(--muted-strong);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .sim-lineup-selected-slot {
+  align-items: center;
   display: grid;
-  gap: 3px;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
 }
 
-.sim-lineup-selected-slot > span {
+.sim-lineup-selected-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sim-lineup-selected-identity > span {
   color: var(--lime);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 800;
 }
 
-.sim-lineup-selected-slot > strong {
-  font-size: 11px;
+.sim-lineup-selected-identity > span b {
+  background: rgba(216, 255, 79, 0.12);
+  border: 1px solid rgba(216, 255, 79, 0.28);
+  border-radius: 5px;
+  padding: 3px 5px;
 }
 
-.sim-lineup-selected-slot > small {
+.sim-lineup-selected-identity > strong {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.sim-lineup-selected-identity > small {
   color: var(--muted);
-  font-size: 7px;
+  font-size: 10px;
   line-height: 1.4;
+}
+
+.sim-lineup-selected-abilities {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.sim-lineup-selected-abilities > div {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+  display: grid;
+  gap: 2px;
+  padding: 7px 4px;
+  text-align: center;
+}
+
+.sim-lineup-selected-abilities dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.sim-lineup-selected-abilities dd {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+  margin: 0;
 }
 
 .sim-lineup-swap {
@@ -2219,14 +2357,14 @@ button:disabled {
 .sim-lineup-swap summary {
   color: var(--ink);
   cursor: pointer;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
   padding: 10px 0;
 }
 
 .sim-lineup-swap > p {
   color: var(--muted-strong);
-  font-size: 7px;
+  font-size: 10px;
   line-height: 1.5;
   margin: -2px 0 8px;
 }
@@ -2249,9 +2387,9 @@ button:disabled {
   cursor: pointer;
   display: grid;
   gap: 2px 6px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 38px;
-  padding: 6px 8px;
+  grid-template-columns: minmax(78px, auto) minmax(0, 1fr) auto;
+  min-height: 48px;
+  padding: 8px 10px;
   text-align: left;
   width: 100%;
 }
@@ -2266,14 +2404,25 @@ button:disabled {
 }
 
 .sim-lineup-swap button span {
+  display: grid;
+  gap: 2px;
+}
+
+.sim-lineup-swap button span b {
   color: var(--lime);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 7px;
-  font-weight: 850;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.sim-lineup-swap button span small {
+  color: var(--muted-strong);
+  font-size: 8px;
+  line-height: 1.25;
 }
 
 .sim-lineup-swap button strong {
-  font-size: 8px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2281,7 +2430,7 @@ button:disabled {
 
 .sim-lineup-swap button small {
   color: var(--muted-strong);
-  font-size: 6px;
+  font-size: 9px;
   white-space: nowrap;
 }
 
@@ -2296,7 +2445,7 @@ button:disabled {
 
 .sim-bench-list {
   display: grid;
-  gap: 5px;
+  gap: 8px;
   list-style: none;
   margin: 0;
   max-height: 430px;
@@ -2318,10 +2467,10 @@ button:disabled {
   border-radius: 10px;
   color: var(--ink);
   display: grid;
-  gap: 7px;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  min-height: 48px;
-  padding: 7px 9px;
+  gap: 10px;
+  grid-template-columns: 68px minmax(0, 1fr) auto;
+  min-height: 72px;
+  padding: 11px 13px;
   text-align: left;
   width: 100%;
 }
@@ -2342,30 +2491,40 @@ button:disabled {
 }
 
 .sim-bench-position {
+  display: grid;
+  gap: 3px;
+  grid-area: position;
+}
+
+.sim-bench-position b {
   color: var(--lime);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 7px;
-  font-weight: 850;
-  grid-area: position;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.sim-bench-position small {
+  color: var(--muted-strong);
+  font-size: 9px;
+  line-height: 1.2;
 }
 
 .sim-bench-identity {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   grid-area: identity;
   min-width: 0;
 }
 
 .sim-bench-identity strong {
-  font-size: 9px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .sim-bench-identity small {
   color: var(--muted);
-  font-size: 6px;
+  font-size: 9px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2374,7 +2533,7 @@ button:disabled {
 .sim-bench-fit,
 .sim-bench-overall {
   color: var(--lime);
-  font-size: 6px;
+  font-size: 9px;
   font-weight: 800;
   grid-area: fit;
   white-space: nowrap;
@@ -2386,7 +2545,7 @@ button:disabled {
 
 .sim-bench-abilities {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   grid-area: abilities;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2395,8 +2554,8 @@ button:disabled {
   background: rgba(255, 255, 255, 0.035);
   border-radius: 5px;
   color: var(--muted);
-  font-size: 6px;
-  padding: 4px;
+  font-size: 9px;
+  padding: 7px 5px;
   text-align: center;
 }
 
@@ -4471,7 +4630,22 @@ button:disabled {
   }
 
   .sim-setup-mini-pitch {
-    min-height: 360px;
+    max-width: 250px;
+    min-height: 340px;
+  }
+
+  .sim-setup-lineup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sim-setup-lineup li > button,
+  .sim-setup-lineup li > div {
+    grid-template-columns: 96px 30px minmax(0, 1fr);
+  }
+
+  .sim-lineup-selected-slot {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sim-setup-reset-confirmation > div:last-child,
