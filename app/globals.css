@@ -4205,6 +4205,130 @@ button.sim-waypoint:focus-visible {
   line-height: 1.5;
 }
 
+.sim-player-role-editor {
+  background: rgba(4, 12, 9, 0.78);
+  border: 1px solid rgba(216, 255, 79, 0.2);
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 11px;
+}
+
+.sim-player-role-editor > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.sim-player-role-editor > header small {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sim-player-role-editor h5 {
+  font-size: 14px;
+  margin: 3px 0 0;
+}
+
+.sim-player-role-editor > header > span {
+  background: rgba(216, 255, 79, 0.08);
+  border: 1px solid rgba(216, 255, 79, 0.16);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  flex: 0 0 auto;
+  font-size: 7px;
+  max-width: 48%;
+  padding: 5px 7px;
+  text-align: right;
+}
+
+.sim-role-presets {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.sim-role-presets button {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.09);
+  display: flex;
+  flex-direction: column;
+  min-height: 62px;
+  padding: 8px;
+  text-align: left;
+}
+
+.sim-role-presets button[aria-checked="true"] {
+  background: rgba(216, 255, 79, 0.13);
+  border-color: rgba(216, 255, 79, 0.52);
+  color: var(--lime);
+}
+
+.sim-role-presets strong {
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.sim-role-presets small {
+  color: var(--muted);
+  font-size: 6px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.sim-role-description {
+  margin-top: 8px !important;
+}
+
+.sim-role-customizer {
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 9px;
+}
+
+.sim-role-customizer summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.sim-role-customizer > div {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 9px;
+}
+
+.sim-role-customizer label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sim-role-customizer label span {
+  color: var(--muted);
+  font-size: 6px;
+}
+
+.sim-role-customizer select {
+  min-height: 34px;
+  min-width: 0;
+  padding: 5px 22px 5px 7px;
+  width: 100%;
+}
+
+.sim-player-role-editor .sim-role-reset {
+  margin-top: 9px;
+  width: 100%;
+}
+
 .sim-live-player-metrics {
   display: grid;
   gap: 6px;
@@ -4653,6 +4777,11 @@ button.sim-waypoint:focus-visible {
   .sim-live-player-metrics,
   .sim-ability-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sim-role-presets,
+  .sim-role-customizer > div {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sim-action-picker > div,

@@ -53,6 +53,14 @@ import {
 import { invalidateDependentInstructions } from "../lib/sequence-invalidation.js";
 import { compactPlayerName } from "../lib/player-name.js";
 import {
+  PLAYER_TACTICAL_ROLE_OPTIONS,
+  applyPlayerTacticalRolePreset,
+  createDefaultPlayerTacticalRole,
+  customizePlayerTacticalRole,
+  reconcilePlayerTacticalRoles,
+  tacticalRolePresetsForFormationRole,
+} from "../lib/player-tactical-role.js";
+import {
   MAX_SIMULATION_DURATION_MS,
   SIMULATION_TICK_MS,
   compileSimulation,
@@ -68,6 +76,7 @@ import {
 import type {
   ParticipantId,
   PitchPoint,
+  PlayerTacticalRole,
   SimulatorPlayer,
   SimulatorTeam,
   TeamSide,
@@ -374,6 +383,88 @@ const goalkeeperAbilityLabels: Array<
   ["reflexes", "반사 신경"],
   ["sweeping", "스위핑"],
 ];
+
+type EditableTacticalRoleField = Exclude<
+  keyof PlayerTacticalRole,
+  "presetId" | "roleGroup"
+>;
+
+const tacticalRoleFields: Array<{
+  field: EditableTacticalRoleField;
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+}> = [
+  {
+    field: "forwardRun",
+    label: "전진 방식",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.forwardRun,
+  },
+  {
+    field: "preferredZone",
+    label: "선호 구역",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.preferredZone,
+  },
+  {
+    field: "lateralRange",
+    label: "좌우 활동 범위",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "verticalRange",
+    label: "상하 활동 범위",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "defensiveDepth",
+    label: "수비 전진 깊이",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "crossing",
+    label: "크로스 성향",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "shooting",
+    label: "슛 성향",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "passing",
+    label: "패스 성향",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "carrying",
+    label: "볼 운반 성향",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+  {
+    field: "pressing",
+    label: "압박 성향",
+    options: PLAYER_TACTICAL_ROLE_OPTIONS.level,
+  },
+];
+
+const automaticBehaviorLabels: Record<string, string> = {
+  hold: "위치 유지",
+  "hold-position": "후방 잔류",
+  shape: "대형 유지",
+  support: "공격 지원",
+  overlap: "오버래핑",
+  underlap: "언더래핑",
+  pressure: "압박",
+  cover: "커버",
+  block: "차단 위치",
+  recover: "루즈볼 회수",
+  manual: "수동 경로",
+  "ball-carrier": "볼 운반",
+  "ball-carrier-pass": "패스 준비",
+  "ball-carrier-cross": "크로스 준비",
+  "ball-carrier-shoot": "슈팅 준비",
+  "goalkeeper-support": "후방 빌드업 지원",
+  "goalkeeper-reaction": "골문 대응",
+};
 
 function preferredTeamId(
   teams: SimulatorTeam[],
@@ -683,6 +774,7 @@ type WorkspaceRunSource = {
   initialBallPosition: PitchPoint | null;
   initialBallOwnerId: ParticipantId | "";
   sequences: TacticalSequence[];
+  playerTacticalRoles: Record<string, PlayerTacticalRole>;
   lineupError: string | null;
 };
 
@@ -693,6 +785,7 @@ function compileWorkspaceRun({
   initialBallPosition,
   initialBallOwnerId,
   sequences,
+  playerTacticalRoles,
   lineupError,
 }: WorkspaceRunSource) {
   if (
@@ -715,6 +808,13 @@ function compileWorkspaceRun({
         y: placements[participant.participantId].y,
       },
       abilities: { ...participant.player.abilities },
+      ...(participant.teamSide === "home"
+        ? {
+            tacticalRole:
+              playerTacticalRoles[participant.player.id] ??
+              createDefaultPlayerTacticalRole(participant.role),
+          }
+        : {}),
     })),
     ...(initialBallPosition
       ? { initialBallPosition: { ...initialBallPosition } }
@@ -763,6 +863,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     useState<ParticipantId | null>(null);
   const [placementOverrides, setPlacementOverrides] =
     useState<PlacementOverrideMap>({});
+  const [playerTacticalRoles, setPlayerTacticalRoles] = useState<
+    Record<string, PlayerTacticalRole>
+  >({});
   const [draggingParticipantId, setDraggingParticipantId] =
     useState<ParticipantId | null>(null);
   const [sequences, setSequences] = useState<TacticalSequence[]>(
@@ -1021,6 +1124,17 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     [lineupState.away, lineupState.home],
   );
   const homeParticipants = lineupState.home;
+  const effectivePlayerTacticalRoles = useMemo(
+    () =>
+      reconcilePlayerTacticalRoles(
+        playerTacticalRoles,
+        homeParticipants.map((participant) => ({
+          playerId: participant.player.id,
+          role: participant.role,
+        })),
+      ) as Record<string, PlayerTacticalRole>,
+    [homeParticipants, playerTacticalRoles],
+  );
   const defaultPlacements = useMemo(
     () =>
       createPlacements(
@@ -1160,6 +1274,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         initialBallPosition,
         initialBallOwnerId: effectiveBallOwnerId,
         sequences: displaySequences,
+        playerTacticalRoles: effectivePlayerTacticalRoles,
         lineupError: lineupState.error,
       });
     } catch {
@@ -1174,6 +1289,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     isDraggingBall,
     lineupState.error,
     participants,
+    effectivePlayerTacticalRoles,
     placements,
   ]);
   const routeRun = activeAction
@@ -1337,6 +1453,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         : null,
     [run],
   );
+  const hasPlayerTacticalRoleChanges = homeParticipants.some(
+    (participant) =>
+      effectivePlayerTacticalRoles[participant.player.id]?.presetId !==
+      createDefaultPlayerTacticalRole(participant.role).presetId,
+  );
   const hasScenarioChanges =
     sortedSequences.length > 1 ||
     sortedSequences[0]?.name !== "시퀀스 1" ||
@@ -1344,6 +1465,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     Object.keys(placementOverrides).length > 0 ||
     initialBallPosition !== null ||
     ballOwnerId !== "" ||
+    hasPlayerTacticalRoleChanges ||
     run !== null ||
     cursorMs > 0;
   const canUndoSequenceEdit = sequenceHistoryCounts.undo > 0;
@@ -1581,6 +1703,78 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     return result.removedInstructionIds.length;
   }
 
+  function applySelectedTacticalRolePreset(presetId: string) {
+    if (
+      !selectedParticipant ||
+      selectedParticipant.teamSide !== "home" ||
+      isPlaying ||
+      activeAction
+    ) {
+      return;
+    }
+    const nextRole = applyPlayerTacticalRolePreset(
+      selectedParticipant.role,
+      presetId,
+    ) as PlayerTacticalRole;
+    setPlayerTacticalRoles((current) => ({
+      ...current,
+      [selectedParticipant.player.id]: nextRole,
+    }));
+    const preset = tacticalRolePresetsForFormationRole(
+      selectedParticipant.role,
+    ).find((candidate) => candidate.id === presetId);
+    invalidateCompilation(
+      `${selectedParticipant.player.name}에게 ${preset?.label ?? "전술 역할"}을 적용했습니다.`,
+    );
+  }
+
+  function updateSelectedTacticalRole(
+    field: EditableTacticalRoleField,
+    value: string,
+  ) {
+    if (
+      !selectedParticipant ||
+      selectedParticipant.teamSide !== "home" ||
+      !effectivePlayerTacticalRoles[selectedParticipant.player.id] ||
+      isPlaying ||
+      activeAction
+    ) {
+      return;
+    }
+    const nextRole = customizePlayerTacticalRole(
+      effectivePlayerTacticalRoles[selectedParticipant.player.id],
+      { [field]: value },
+    ) as PlayerTacticalRole;
+    setPlayerTacticalRoles((current) => ({
+      ...current,
+      [selectedParticipant.player.id]: nextRole,
+    }));
+    invalidateCompilation(
+      `${selectedParticipant.player.name}의 세부 전술 성향을 변경했습니다.`,
+    );
+  }
+
+  function resetSelectedTacticalRole() {
+    if (
+      !selectedParticipant ||
+      selectedParticipant.teamSide !== "home" ||
+      isPlaying ||
+      activeAction
+    ) {
+      return;
+    }
+    const nextRole = createDefaultPlayerTacticalRole(
+      selectedParticipant.role,
+    ) as PlayerTacticalRole;
+    setPlayerTacticalRoles((current) => ({
+      ...current,
+      [selectedParticipant.player.id]: nextRole,
+    }));
+    invalidateCompilation(
+      `${selectedParticipant.player.name}의 전술 역할을 포지션 기본값으로 되돌렸습니다.`,
+    );
+  }
+
   function resetSequenceHistory(nextSequences: TacticalSequence[]) {
     sequenceUndoRef.current = [];
     sequenceRedoRef.current = [];
@@ -1738,6 +1932,15 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             playerIds: [...draftHomeLineupSelection.playerIds],
           }
         : null,
+    );
+    setPlayerTacticalRoles((current) =>
+      reconcilePlayerTacticalRoles(
+        current,
+        setupPreviewState.home.map((participant) => ({
+          playerId: participant.player.id,
+          role: participant.role,
+        })),
+      ) as Record<string, PlayerTacticalRole>,
     );
     setHasEnteredSimulator(true);
     setShowSetupResetConfirmation(false);
@@ -3380,9 +3583,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     nextInstructionOrderRef.current = 1;
     nextSequenceIdRef.current = 2;
     setPlacementOverrides({});
+    setPlayerTacticalRoles({});
     setBallOwnerId(defaultOwner?.participantId ?? "");
     setInitialBallPosition(null);
-    invalidateCompilation("모든 초기 배치·이동·패스 지시를 초기화했습니다.");
+    invalidateCompilation(
+      "모든 선수 역할·초기 배치·이동·패스 지시를 초기화했습니다.",
+    );
   }
 
   function restoreSequenceHistory(direction: "undo" | "redo") {
@@ -3431,6 +3637,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       initialBallPosition,
       initialBallOwnerId: effectiveBallOwnerId,
       sequences: sequenceSource,
+      playerTacticalRoles: effectivePlayerTacticalRoles,
       lineupError: lineupState.error,
     });
   }
@@ -3476,6 +3683,16 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   const selectedFramePlayer = effectiveSelectedParticipantId
     ? frame?.players[effectiveSelectedParticipantId]
     : undefined;
+  const selectedTacticalRole =
+    selectedParticipant?.teamSide === "home"
+      ? effectivePlayerTacticalRoles[selectedParticipant.player.id]
+      : undefined;
+  const selectedTacticalRolePresets = selectedParticipant
+    ? tacticalRolePresetsForFormationRole(selectedParticipant.role)
+    : [];
+  const selectedTacticalRolePreset = selectedTacticalRolePresets.find(
+    (preset) => preset.id === selectedTacticalRole?.presetId,
+  );
   const selectedProximity = effectiveSelectedParticipantId
     ? frame?.metrics.players[effectiveSelectedParticipantId]
     : undefined;
@@ -4013,7 +4230,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             onClick={clearAllInstructions}
             disabled={isPlaying || Boolean(activeAction)}
           >
-            지시 전체 초기화
+            전술 전체 초기화
           </button>
         </div>
       </header>
@@ -4985,6 +5202,107 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   </p>
                 </div>
               </header>
+
+              {selectedParticipant.teamSide === "home" &&
+              selectedTacticalRole ? (
+                <section
+                  className="sim-player-role-editor"
+                  aria-labelledby={`sim-player-role-${selectedParticipant.player.id}`}
+                >
+                  <header>
+                    <div>
+                      <small>지속 전술 역할</small>
+                      <h5
+                        id={`sim-player-role-${selectedParticipant.player.id}`}
+                      >
+                        {selectedTacticalRolePreset?.label ?? "사용자 정의"}
+                      </h5>
+                    </div>
+                    <span>
+                      현재 판단 ·{" "}
+                      {selectedFramePlayer
+                        ? automaticBehaviorLabels[
+                            selectedFramePlayer.behavior
+                          ] ?? selectedFramePlayer.behavior
+                        : "재생 시 표시"}
+                    </span>
+                  </header>
+
+                  <div
+                    className="sim-role-presets"
+                    role="radiogroup"
+                    aria-label={`${selectedParticipant.player.name} 전술 역할 프리셋`}
+                  >
+                    {selectedTacticalRolePresets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={selectedTacticalRole.presetId === preset.id}
+                        disabled={isPlaying || Boolean(activeAction)}
+                        onClick={() =>
+                          applySelectedTacticalRolePreset(preset.id)
+                        }
+                      >
+                        <strong>{preset.label}</strong>
+                        <small>{preset.description}</small>
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="sim-role-description">
+                    {selectedTacticalRolePreset?.description ??
+                      "선택한 프리셋을 기반으로 세부 성향을 직접 조정한 상태입니다."}
+                  </p>
+
+                  <details className="sim-role-customizer">
+                    <summary>세부 성향 직접 조정</summary>
+                    <div>
+                      {tacticalRoleFields.map(({ field, label, options }) => (
+                        <label
+                          key={field}
+                          htmlFor={`sim-role-${selectedParticipant.player.id}-${field}`}
+                        >
+                          <span>{label}</span>
+                          <select
+                            id={`sim-role-${selectedParticipant.player.id}-${field}`}
+                            value={selectedTacticalRole[field]}
+                            disabled={isPlaying || Boolean(activeAction)}
+                            onChange={(event) =>
+                              updateSelectedTacticalRole(
+                                field,
+                                event.target.value,
+                              )
+                            }
+                          >
+                            {options.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+
+                  <button
+                    type="button"
+                    className="sim-role-reset"
+                    disabled={
+                      isPlaying ||
+                      Boolean(activeAction) ||
+                      selectedTacticalRole.presetId ===
+                        createDefaultPlayerTacticalRole(
+                          selectedParticipant.role,
+                        ).presetId
+                    }
+                    onClick={resetSelectedTacticalRole}
+                  >
+                    포지션 기본 역할로 되돌리기
+                  </button>
+                </section>
+              ) : null}
 
               <dl className="sim-live-player-metrics">
                 <div>
