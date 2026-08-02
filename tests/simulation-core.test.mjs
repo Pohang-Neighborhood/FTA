@@ -8,6 +8,7 @@ import {
   sampleSimulation,
   summarizeSimulation,
 } from "../lib/simulation-core.js";
+import { PITCH_BOUNDS } from "../lib/tactics-core.js";
 
 const defaultAbilities = {
   speed: 72,
@@ -163,11 +164,65 @@ test("compiles exactly 22 bounded players at deterministic 50ms ticks", () => {
     for (const player of Object.values(frame.players)) {
       assert.ok(Number.isFinite(player.position.x));
       assert.ok(Number.isFinite(player.position.y));
-      assert.ok(player.position.x >= 0 && player.position.x <= 100);
-      assert.ok(player.position.y >= 0 && player.position.y <= 100);
+      assert.ok(
+        player.position.x >= PITCH_BOUNDS.minX &&
+          player.position.x <= PITCH_BOUNDS.maxX,
+      );
+      assert.ok(
+        player.position.y >= PITCH_BOUNDS.minY &&
+          player.position.y <= PITCH_BOUNDS.maxY,
+      );
     }
-    assert.ok(frame.ball.position.x >= 0 && frame.ball.position.x <= 100);
-    assert.ok(frame.ball.position.y >= 0 && frame.ball.position.y <= 100);
+    assert.ok(
+      frame.ball.position.x >= PITCH_BOUNDS.minX &&
+        frame.ball.position.x <= PITCH_BOUNDS.maxX,
+    );
+    assert.ok(
+      frame.ball.position.y >= PITCH_BOUNDS.minY &&
+        frame.ball.position.y <= PITCH_BOUNDS.maxY,
+    );
+  }
+});
+
+test("keeps edge-seeking players and the ball inside render-safe bounds", () => {
+  const run = compileSimulation(
+    createScenario({
+      players: createPlayers({
+        homeOverrides: {
+          "home:st": { position: { x: 0, y: 100 } },
+        },
+      }),
+      initialBallOwnerId: undefined,
+      initialBallPosition: { x: 100, y: 0 },
+      manualRoutes: [
+        {
+          playerId: "home:st",
+          startAtMs: 0,
+          waypoints: [{ x: 0, y: 100 }],
+        },
+      ],
+    }),
+  );
+
+  for (const frame of run.frames) {
+    for (const player of Object.values(frame.players)) {
+      assert.ok(
+        player.position.x >= PITCH_BOUNDS.minX &&
+          player.position.x <= PITCH_BOUNDS.maxX,
+      );
+      assert.ok(
+        player.position.y >= PITCH_BOUNDS.minY &&
+          player.position.y <= PITCH_BOUNDS.maxY,
+      );
+    }
+    assert.ok(
+      frame.ball.position.x >= PITCH_BOUNDS.minX &&
+        frame.ball.position.x <= PITCH_BOUNDS.maxX,
+    );
+    assert.ok(
+      frame.ball.position.y >= PITCH_BOUNDS.minY &&
+        frame.ball.position.y <= PITCH_BOUNDS.maxY,
+    );
   }
 });
 
@@ -461,6 +516,51 @@ test("cancels a pass when the instructed passer has no possession", () => {
   assert.equal(cancellation.passId, "invalid-owner");
   assert.equal(cancellation.reason, "no_possession");
   assert.equal(summarizeSimulation(run).passes.cancelled, 1);
+});
+
+test("starts a deterministic loose ball at a user-defined pitch position", () => {
+  const scenario = createScenario({
+    initialBallOwnerId: undefined,
+    initialBallPosition: { x: 27, y: 63 },
+    manualRoutes: [],
+  });
+  const first = compileSimulation(scenario);
+  const second = compileSimulation(scenario);
+
+  assert.equal(first.frames[0].ball.kind, "loose");
+  assert.deepEqual(first.frames[0].ball.position, { x: 27, y: 63 });
+  assert.deepEqual(first, second);
+});
+
+test("requires exactly one initial ball source", () => {
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallPosition: { x: 50, y: 50 },
+        }),
+      ),
+    /either initialBallOwnerId or initialBallPosition/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallOwnerId: undefined,
+        }),
+      ),
+    /either initialBallOwnerId or initialBallPosition/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          initialBallOwnerId: undefined,
+          initialBallPosition: { x: -1, y: 50 },
+        }),
+      ),
+    /initialBallPosition must stay inside/,
+  );
 });
 
 test("samples interpolated frames and summarizes distance and shape changes", () => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -38,7 +39,11 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.match(html, /id="sim-away-team"/i);
   assert.match(html, /South Korea(?:<!-- -->)? 공격 ↑/i);
   assert.match(html, /Brazil(?:<!-- -->)? 공격 ↓/i);
-  assert.match(html, /초기 공 소유 선수/i);
+  assert.match(
+    html,
+    /aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"/i,
+  );
+  assert.match(html, /초기 공 위치·소유/i);
   assert.match(html, /패스 지시/i);
   assert.match(html, /장면 길이/i);
   assert.match(
@@ -49,9 +54,36 @@ test("server-renders the actual-player scenario simulator", async () => {
   const playerButtons = html.match(/<button[^>]*data-sim-token=/gi) ?? [];
   const homePlayers = html.match(/data-sim-token="home:[^"]+"/gi) ?? [];
   const awayPlayers = html.match(/data-sim-token="away:[^"]+"/gi) ?? [];
+  const playerLabels = html.match(/class="sim-player-name"/gi) ?? [];
+  const compactPlayerLabels = html.match(/class="sim-player-name-short"/gi) ?? [];
+  const fullPlayerLabels = html.match(/class="sim-player-name-full"/gi) ?? [];
   assert.equal(playerButtons.length, 22);
   assert.equal(homePlayers.length, 11);
   assert.equal(awayPlayers.length, 11);
+  assert.equal(playerLabels.length, 22);
+  assert.equal(compactPlayerLabels.length, 22);
+  assert.equal(fullPlayerLabels.length, 22);
+  assert.match(
+    html,
+    /class="sim-player-name" aria-hidden="true"><span class="sim-player-name-short">J\. Hyeon-woo<\/span><span class="sim-player-name-full">Jo Hyeon-woo<\/span>/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-gk/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-df/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-mf/i,
+  );
+  assert.match(
+    html,
+    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-fw/i,
+  );
+  assert.match(html, /<button[^>]*data-sim-ball/i);
   assert.match(
     html,
     /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 선택 후 경기장을 눌러 경로 지정"/i,
@@ -60,10 +92,20 @@ test("server-renders the actual-player scenario simulator", async () => {
     html,
     /aria-label="상대 팀 Alisson, 1번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 자동 반응 선수 정보 보기"/i,
   );
-  assert.match(html, /선수 토큰을 드래그하면 시작 위치가 바뀝니다/i);
+  assert.match(html, /선수와 공을 드래그하면 시작 위치가 바뀝니다/i);
 
   assert.doesNotMatch(
     html,
     /Prototype data|isInferred|provenance|secondaryPosition|codex-preview|Building your site|react-loading-skeleton/i,
+  );
+
+  const stylesheet = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(stylesheet, /\.sim-player-name\s*\{[^}]*pointer-events:\s*none;/s);
+  assert.doesNotMatch(
+    stylesheet,
+    /\.sim-player-name\s*\{\s*display:\s*none;/s,
   );
 });

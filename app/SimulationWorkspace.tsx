@@ -11,15 +11,19 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  PITCH_BOUNDS,
   clamp,
   mergePlacementOverrides,
   mirrorFormationSlots,
+  nearestPlacementId,
   toPitchPosition,
   toPitchPositionWithOffset,
 } from "../lib/tactics-core.js";
 import {
+  positionForFormationRole,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
+import { compactPlayerName } from "../lib/player-name.js";
 import {
   MAX_SIMULATION_DURATION_MS,
   SIMULATION_TICK_MS,
@@ -60,6 +64,10 @@ type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
 type ManualRouteMap = Record<string, PitchPoint[]>;
 
+function positionGroupClass(role: string) {
+  return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
+}
+
 type DragState = {
   participantId: ParticipantId;
   pointerId: number;
@@ -69,6 +77,18 @@ type DragState = {
   grabOffsetY: number;
   moved: boolean;
   originalOverride?: PitchPoint;
+};
+
+type BallDragState = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  grabOffsetX: number;
+  grabOffsetY: number;
+  moved: boolean;
+  originalOwnerId: ParticipantId | "";
+  originalPosition: PitchPoint | null;
+  dropTargets: Record<string, PitchPoint>;
 };
 
 type PassInstruction = {
@@ -364,6 +384,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     useState<ParticipantId | null>(null);
   const [manualRoutes, setManualRoutes] = useState<ManualRouteMap>({});
   const [ballOwnerId, setBallOwnerId] = useState<ParticipantId | "">("");
+  const [initialBallPosition, setInitialBallPosition] =
+    useState<PitchPoint | null>(null);
+  const [isDraggingBall, setIsDraggingBall] = useState(false);
   const [passFromId, setPassFromId] = useState<ParticipantId | "">("");
   const [passTargetId, setPassTargetId] = useState<ParticipantId | "">("");
   const [passAtMs, setPassAtMs] = useState(1_000);
@@ -379,7 +402,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
 
   const pitchRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  const ballDragRef = useRef<BallDragState | null>(null);
   const suppressClickRef = useRef<ParticipantId | null>(null);
+  const suppressBallClickRef = useRef(false);
   const animationFrameRef = useRef<number | null>(null);
   const cursorRef = useRef(0);
 
@@ -597,6 +622,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     setSelectedParticipantId(null);
     setBallOwnerId("");
+    setInitialBallPosition(null);
     setPassFromId("");
     setPassTargetId("");
     setPlacementOverrides({});
@@ -609,18 +635,214 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const pitch = pitchRef.current;
     if (!pitch) {
       return {
-        x: clamp(x, 6, 94),
-        y: clamp(y, 6, 94),
+        x: clamp(x, PITCH_BOUNDS.minX, PITCH_BOUNDS.maxX),
+        y: clamp(y, PITCH_BOUNDS.minY, PITCH_BOUNDS.maxY),
       } as PitchPoint;
     }
 
     const rect = pitch.getBoundingClientRect();
-    const horizontalInset = Math.max(6, (35 / rect.width) * 100);
-    const verticalInset = Math.max(6, (34 / rect.height) * 100);
+    const horizontalInset = Math.max(PITCH_BOUNDS.minX, (35 / rect.width) * 100);
+    const verticalInset = Math.max(PITCH_BOUNDS.minY, (34 / rect.height) * 100);
     return {
       x: clamp(x, horizontalInset, 100 - horizontalInset),
       y: clamp(y, verticalInset, 100 - verticalInset),
     } as PitchPoint;
+  }
+
+  function clampBallToVisiblePitch(x: number, y: number) {
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return {
+        x: clamp(x, PITCH_BOUNDS.minX, PITCH_BOUNDS.maxX),
+        y: clamp(y, PITCH_BOUNDS.minY, PITCH_BOUNDS.maxY),
+      } as PitchPoint;
+    }
+
+    const rect = pitch.getBoundingClientRect();
+    const horizontalInset = Math.max(PITCH_BOUNDS.minX, (10 / rect.width) * 100);
+    const verticalInset = Math.max(PITCH_BOUNDS.minY, (10 / rect.height) * 100);
+    return {
+      x: clamp(x, horizontalInset, 100 - horizontalInset),
+      y: clamp(y, verticalInset, 100 - verticalInset),
+    } as PitchPoint;
+  }
+
+  function updateBallPosition(
+    clientX: number,
+    clientY: number,
+    grabOffsetX = 0,
+    grabOffsetY = 0,
+  ) {
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return null;
+    }
+    const rawPosition = toPitchPositionWithOffset(
+      clientX,
+      clientY,
+      pitch.getBoundingClientRect(),
+      grabOffsetX,
+      grabOffsetY,
+    ) as PitchPoint;
+    const nextPosition = clampBallToVisiblePitch(rawPosition.x, rawPosition.y);
+    setInitialBallPosition(nextPosition);
+    setBallOwnerId("");
+    return nextPosition;
+  }
+
+  function handleBallPointerDown(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    displayedPosition: PitchPoint,
+  ) {
+    if (
+      isPlaying ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+    event.stopPropagation();
+    const pitch = pitchRef.current;
+    if (!pitch) {
+      return;
+    }
+
+    const pitchRect = pitch.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsDraggingBall(true);
+    ballDragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      grabOffsetX:
+        ((event.clientX - pitchRect.left) / pitchRect.width) * 100 -
+        displayedPosition.x,
+      grabOffsetY:
+        ((event.clientY - pitchRect.top) / pitchRect.height) * 100 -
+        displayedPosition.y,
+      moved: false,
+      originalOwnerId: ballOwnerId,
+      originalPosition: initialBallPosition
+        ? { ...initialBallPosition }
+        : null,
+      dropTargets: Object.fromEntries(
+        participants.map((participant) => [
+          participant.participantId,
+          {
+            ...(frame?.players[participant.participantId]?.position ??
+              placements[participant.participantId]),
+          },
+        ]),
+      ),
+    };
+  }
+
+  function handleBallPointerMove(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    const drag = ballDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const movement = Math.hypot(
+      event.clientX - drag.startClientX,
+      event.clientY - drag.startClientY,
+    );
+    if (!drag.moved && movement < 4) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!drag.moved) {
+      invalidateCompilation();
+    }
+    drag.moved = true;
+    updateBallPosition(
+      event.clientX,
+      event.clientY,
+      drag.grabOffsetX,
+      drag.grabOffsetY,
+    );
+  }
+
+  function finishBallDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    cancelled = false,
+  ) {
+    const drag = ballDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (cancelled) {
+      setBallOwnerId(drag.originalOwnerId);
+      setInitialBallPosition(drag.originalPosition);
+      setStatusMessage("공 시작 위치 이동을 취소했습니다.");
+    } else if (drag.moved) {
+      const position = updateBallPosition(
+        event.clientX,
+        event.clientY,
+        drag.grabOffsetX,
+        drag.grabOffsetY,
+      );
+      const pitch = pitchRef.current;
+      const nearestId =
+        position && pitch
+          ? nearestPlacementId(
+              position,
+              drag.dropTargets,
+              pitch.getBoundingClientRect(),
+              30,
+            )
+          : null;
+      if (nearestId && participantsById.has(nearestId)) {
+        const nextOwnerId = nearestId as ParticipantId;
+        const nextOwner = participantsById.get(nextOwnerId);
+        setBallOwnerId(nextOwnerId);
+        setInitialBallPosition(null);
+        if (nextOwner?.teamSide === "home") {
+          setPassFromId(nextOwnerId);
+        }
+        invalidateCompilation(
+          `${nextOwner?.player.name ?? "선수"}를 초기 공 소유자로 지정했습니다.`,
+        );
+      } else {
+        invalidateCompilation("공을 초기 루즈볼 위치에 배치했습니다.");
+      }
+      suppressBallClickRef.current = true;
+      window.setTimeout(() => {
+        suppressBallClickRef.current = false;
+      }, 0);
+    }
+
+    setIsDraggingBall(false);
+    ballDragRef.current = null;
+  }
+
+  function handleBallKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const direction = {
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 },
+    }[event.key];
+    if (!direction || isPlaying) {
+      return;
+    }
+
+    event.preventDefault();
+    const currentPosition = ballPosition;
+    const distance = event.shiftKey ? 5 : 2;
+    setInitialBallPosition(
+      clampBallToVisiblePitch(
+        currentPosition.x + direction.x * distance,
+        currentPosition.y + direction.y * distance,
+      ),
+    );
+    setBallOwnerId("");
+    invalidateCompilation("공 시작 위치를 방향키로 변경했습니다.");
   }
 
   function updatePlayerPosition(
@@ -913,6 +1135,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setPlacementOverrides({});
     setPasses([]);
     setBallOwnerId(defaultOwner?.participantId ?? "");
+    setInitialBallPosition(null);
     setPassFromId(defaultOwner?.participantId ?? "");
     setPassTargetId(defaultTarget?.participantId ?? "");
     setPassAtMs(1_000);
@@ -922,11 +1145,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   function buildRun() {
     if (
       participants.length !== 22 ||
-      !effectiveBallOwnerId ||
+      (!initialBallPosition && !effectiveBallOwnerId) ||
       lineupState.error
     ) {
       throw new Error(
-        lineupState.error ?? "양 팀 선발 11명과 공 소유 선수가 필요합니다.",
+        lineupState.error ?? "양 팀 선발 11명과 초기 공 위치가 필요합니다.",
       );
     }
     const scenario = {
@@ -941,7 +1164,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         },
         abilities: { ...participant.player.abilities },
       })),
-      initialBallOwnerId: effectiveBallOwnerId,
+      ...(initialBallPosition
+        ? { initialBallPosition: { ...initialBallPosition } }
+        : { initialBallOwnerId: effectiveBallOwnerId }),
       manualRoutes: Object.entries(manualRoutes).flatMap(
         ([participantId, waypoints]) =>
           waypoints.length > 0
@@ -1010,6 +1235,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     : null;
   const ballPosition =
     frame?.ball.position ??
+    initialBallPosition ??
     (effectiveBallOwnerId ? placements[effectiveBallOwnerId] : undefined) ??
     { x: 50, y: 50 };
 
@@ -1171,27 +1397,50 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           </label>
 
           <label className="sim-field" htmlFor="sim-ball-owner">
-            <span>초기 공 소유 선수</span>
+            <span>초기 공 위치·소유</span>
             <select
               id="sim-ball-owner"
-              value={effectiveBallOwnerId}
+              value={initialBallPosition ? "" : effectiveBallOwnerId}
               disabled={isPlaying}
               onChange={(event) => {
                 const nextOwner = event.target.value as ParticipantId;
+                if (!nextOwner) {
+                  setInitialBallPosition({ ...ballPosition });
+                  setBallOwnerId("");
+                  invalidateCompilation("현재 위치에서 루즈볼로 시작합니다.");
+                  return;
+                }
                 setBallOwnerId(nextOwner);
-                setPassFromId(nextOwner);
+                setInitialBallPosition(null);
+                if (nextOwner.startsWith("home:")) {
+                  setPassFromId(nextOwner);
+                }
                 invalidateCompilation("초기 공 소유 선수를 변경했습니다.");
               }}
             >
-              {homeParticipants.map((participant) => (
-                <option
-                  key={participant.participantId}
-                  value={participant.participantId}
-                >
-                  {participant.player.number}. {participant.player.name} ·{" "}
-                  {participant.role}
-                </option>
-              ))}
+              <option value="">소유자 없음 · 루즈볼</option>
+              <optgroup label={`우리 팀 · ${homeTeam?.name ?? ""}`}>
+                {lineupState.home.map((participant) => (
+                  <option
+                    key={participant.participantId}
+                    value={participant.participantId}
+                  >
+                    {participant.player.number}. {participant.player.name} ·{" "}
+                    {participant.role}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={`상대 팀 · ${awayTeam?.name ?? ""}`}>
+                {lineupState.away.map((participant) => (
+                  <option
+                    key={participant.participantId}
+                    value={participant.participantId}
+                  >
+                    {participant.player.number}. {participant.player.name} ·{" "}
+                    {participant.role}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </label>
 
@@ -1272,18 +1521,38 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         </aside>
 
         <div className="sim-pitch-column">
-          <div className="sim-team-legend" aria-label="팀과 공격 방향">
-            <span className="sim-legend-home">
-              <i aria-hidden="true" /> {homeTeam?.name} 공격 ↑
-            </span>
-            <span className="sim-legend-away">
-              <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
-            </span>
+          <div className="sim-tactical-legend">
+            <div className="sim-team-legend" aria-label="팀과 공격 방향">
+              <span className="sim-legend-home">
+                <i aria-hidden="true" /> {homeTeam?.name} 공격 ↑
+              </span>
+              <span className="sim-legend-away">
+                <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
+              </span>
+            </div>
+            <div
+              className="sim-position-legend"
+              aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"
+            >
+              <span className="sim-position-fw">
+                <i aria-hidden="true">▲▼</i> 공격
+              </span>
+              <span className="sim-position-mf">
+                <i aria-hidden="true">▲▼</i> 미드필더
+              </span>
+              <span className="sim-position-df">
+                <i aria-hidden="true">▲▼</i> 수비
+              </span>
+              <span className="sim-position-gk">
+                <i aria-hidden="true">▲▼</i> 골키퍼
+              </span>
+            </div>
           </div>
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
-            선수 토큰을 드래그하면 시작 위치가 바뀝니다. 우리 팀 선수를
-            선택한 뒤 경기장의 빈 지점을 누르면 이후 수동 경로가 순서대로
-            추가됩니다. 상대 팀과 지시받지 않은 선수는 자동으로 반응합니다.
+            선수와 공을 드래그하면 시작 위치가 바뀝니다. 공을 선수 위에 놓으면
+            해당 선수가 소유하고, 빈 공간에 놓으면 루즈볼로 시작합니다. 우리 팀
+            선수를 선택한 뒤 경기장의 빈 지점을 누르면 이후 수동 경로가 순서대로
+            추가됩니다.
           </p>
           <div
             ref={pitchRef}
@@ -1370,6 +1639,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     participant.teamSide === "home"
                       ? "sim-player-home"
                       : "sim-player-away",
+                    positionGroupClass(participant.role),
                     isSelected ? "sim-player-selected" : "",
                     isManual ? "sim-player-manual" : "sim-player-automatic",
                     hasCustomPlacement ? "sim-player-custom-position" : "",
@@ -1420,30 +1690,72 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     <small>{participant.role}</small>
                     <strong>{participant.player.number}</strong>
                   </span>
-                  <span className="sim-player-name">{participant.player.name}</span>
+                  <span className="sim-player-name" aria-hidden="true">
+                    <span className="sim-player-name-short">
+                      {compactPlayerName(participant.player.name)}
+                    </span>
+                    <span className="sim-player-name-full">
+                      {participant.player.name}
+                    </span>
+                  </span>
                 </button>
               );
             })}
 
-            <span
-              className="sim-ball-token"
-              role="img"
+            <button
+              type="button"
+              data-sim-ball
+              className={`sim-ball-token${isDraggingBall ? " sim-ball-dragging" : ""}`}
+              disabled={isPlaying}
               aria-label={
                 !frame
-                  ? `${participantsById.get(effectiveBallOwnerId)?.player.name ?? "선수"}가 초기 공 소유`
+                  ? initialBallPosition
+                    ? "초기 루즈볼. 드래그 또는 방향키로 시작 위치 이동"
+                    : `${participantsById.get(effectiveBallOwnerId)?.player.name ?? "선수"}가 초기 공 소유. 드래그 또는 방향키로 시작 위치 이동`
                   : frame.ball.kind === "controlled" && frame.ball.ownerId
-                  ? `${participantsById.get(frame.ball.ownerId)?.player.name ?? "선수"}가 공 소유`
+                  ? `${participantsById.get(frame.ball.ownerId)?.player.name ?? "선수"}가 공 소유. 드래그 또는 방향키로 시작 위치 이동`
                   : frame.ball.kind === "inFlight"
-                    ? "패스 중인 공"
-                    : "루즈볼"
+                    ? "패스 중인 공. 드래그 또는 방향키로 초기 위치 이동"
+                    : "루즈볼. 드래그 또는 방향키로 초기 위치 이동"
               }
+              aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
               style={
                 {
                   left: `${ballPosition.x}%`,
                   top: `${ballPosition.y}%`,
                 } as CSSProperties
               }
-            />
+              onClick={(event) => {
+                event.stopPropagation();
+                if (suppressBallClickRef.current) {
+                  suppressBallClickRef.current = false;
+                  return;
+                }
+                const ownerId =
+                  frame?.ball.kind === "controlled"
+                    ? (frame.ball.ownerId as ParticipantId | undefined)
+                    : initialBallPosition
+                      ? undefined
+                      : effectiveBallOwnerId;
+                if (ownerId && participantsById.has(ownerId)) {
+                  setSelectedParticipantId(ownerId);
+                  setStatusMessage(
+                    `${participantsById.get(ownerId)?.player.name ?? "공 소유 선수"}를 선택했습니다.`,
+                  );
+                } else {
+                  setStatusMessage("공을 선택했습니다. 드래그하거나 방향키로 이동하세요.");
+                }
+              }}
+              onKeyDown={handleBallKeyDown}
+              onPointerDown={(event) =>
+                handleBallPointerDown(event, ballPosition)
+              }
+              onPointerMove={handleBallPointerMove}
+              onPointerUp={(event) => finishBallDrag(event)}
+              onPointerCancel={(event) => finishBallDrag(event, true)}
+            >
+              <span aria-hidden="true" />
+            </button>
           </div>
 
           <p className="sim-status" role="status" aria-live="polite">
