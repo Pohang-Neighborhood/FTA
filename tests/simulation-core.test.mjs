@@ -899,6 +899,85 @@ test("moves unassigned home support and assigns away pressure, cover, block, and
   );
 });
 
+test("updates automatic tactical targets independently from 50ms physics ticks", () => {
+  const run = compileSimulation(createScenario());
+  const decisionFrame = run.frames.find((frame) => frame.elapsedMs === 300);
+  const pressurePlayer = Object.values(decisionFrame.players).find(
+    (player) => player.team === "away" && player.behavior === "pressure",
+  );
+  assert.ok(pressurePlayer);
+
+  const heldTargets = run.frames
+    .filter(
+      (frame) => frame.elapsedMs >= 300 && frame.elapsedMs <= 500,
+    )
+    .map((frame) => frame.players[pressurePlayer.id].target);
+
+  assert.ok(
+    run.frames.find((frame) => frame.elapsedMs === 500).players[
+      pressurePlayer.id
+    ].distanceM > decisionFrame.players[pressurePlayer.id].distanceM,
+  );
+  assert.ok(
+    heldTargets.every(
+      (target) => JSON.stringify(target) === JSON.stringify(heldTargets[0]),
+    ),
+  );
+});
+
+test("does not refresh existing opponent decisions at a sequence boundary", () => {
+  const sequences = [
+    {
+      id: "sequence-one",
+      order: 1,
+      name: "첫 구간",
+      instructions: [
+        {
+          id: "short-move-one",
+          order: 0,
+          type: "move",
+          playerId: "home:st",
+          atMs: 0,
+          waypoints: [{ x: 50.05, y: 24 }],
+        },
+      ],
+    },
+    {
+      id: "sequence-two",
+      order: 2,
+      name: "두 번째 구간",
+      instructions: [
+        {
+          id: "short-move-two",
+          order: 0,
+          type: "move",
+          playerId: "home:lcm",
+          atMs: 0,
+          waypoints: [{ x: 34.05, y: 49 }],
+        },
+      ],
+    },
+  ];
+  const run = compileSimulation(
+    createSequenceScenario(sequences, { durationMs: 500 }),
+  );
+  const boundaryAtMs = run.sequenceTimeline[0].completedAtMs;
+  const boundaryFrame = run.frames.find(
+    (frame) => frame.elapsedMs === boundaryAtMs,
+  );
+  const nextFrame = run.frames.find(
+    (frame) => frame.elapsedMs === boundaryAtMs + SIMULATION_TICK_MS,
+  );
+
+  assert.equal(boundaryAtMs, run.sequenceTimeline[1].startedAtMs);
+  for (const player of Object.values(boundaryFrame.players).filter(
+    (candidate) => candidate.team === "away",
+  )) {
+    assert.deepEqual(nextFrame.players[player.id].target, player.target);
+    assert.equal(nextFrame.players[player.id].behavior, player.behavior);
+  }
+});
+
 test("moves an independent pass to its receiver and summarizes the reception", () => {
   const run = compileSimulation(createSuccessfulPassScenario());
   const events = allEvents(run);
@@ -1229,6 +1308,13 @@ test("rejects malformed team, route, and tick inputs", () => {
         maximumDurationMs: 1_000,
       }),
     /must not exceed/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(createScenario(), {
+        automaticDecisionIntervalMs: 225,
+      }),
+    /automaticDecisionIntervalMs must align/,
   );
   assert.throws(
     () =>
