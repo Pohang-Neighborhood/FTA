@@ -3114,6 +3114,20 @@ button:disabled {
   stroke-dasharray: 2 4;
 }
 
+.sim-route-hit {
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: stroke;
+  stroke: transparent;
+  stroke-width: 12;
+}
+
+.sim-route-layer g:focus-visible .sim-route {
+  filter: drop-shadow(0 0 5px rgba(216, 255, 79, 0.9));
+  opacity: 1;
+  stroke-width: 4;
+}
+
 .sim-waypoint {
   align-items: center;
   background: #07100d;
@@ -3547,7 +3561,8 @@ button:disabled {
 }
 
 .sim-instruction-editor,
-.sim-instruction-queue {
+.sim-instruction-queue,
+.sim-sequence-editor {
   background: #0b1411;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -3556,7 +3571,9 @@ button:disabled {
 }
 
 .sim-instruction-editor > header,
-.sim-instruction-queue > header {
+.sim-instruction-queue > header,
+.sim-sequence-editor > header,
+.sim-sequence-card > header {
   align-items: flex-start;
   display: flex;
   gap: 10px;
@@ -3566,12 +3583,15 @@ button:disabled {
 .sim-instruction-editor h4,
 .sim-instruction-editor p,
 .sim-instruction-queue h4,
-.sim-instruction-queue p {
+.sim-instruction-queue p,
+.sim-sequence-editor h4,
+.sim-sequence-editor p {
   margin: 0;
 }
 
 .sim-instruction-editor h4,
-.sim-instruction-queue h4 {
+.sim-instruction-queue h4,
+.sim-sequence-editor h4 {
   font-size: 14px;
   letter-spacing: -0.025em;
 }
@@ -3587,7 +3607,8 @@ button:disabled {
 }
 
 .sim-instruction-editor button,
-.sim-instruction-queue button {
+.sim-instruction-queue button,
+.sim-sequence-editor button {
   background: transparent;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
@@ -3600,7 +3621,8 @@ button:disabled {
 }
 
 .sim-instruction-editor button:not(:disabled):hover,
-.sim-instruction-queue button:not(:disabled):hover {
+.sim-instruction-queue button:not(:disabled):hover,
+.sim-sequence-editor button:not(:disabled):hover {
   border-color: var(--lime);
 }
 
@@ -3664,7 +3686,10 @@ button:disabled {
 }
 
 .sim-instruction-time input,
-.sim-instruction-queue input {
+.sim-instruction-queue input,
+.sim-sequence-editor input,
+.sim-sequence-editor select,
+.sim-sequence-target select {
   background: #07100d;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -3731,6 +3756,183 @@ button:disabled {
   color: var(--coral);
 }
 
+.sim-sequence-target {
+  display: grid;
+  gap: 6px;
+  margin-top: 13px;
+}
+
+.sim-sequence-target > span,
+.sim-sequence-fields label > span,
+.sim-instruction-move > span {
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sim-sequence-editor {
+  border-top-color: rgba(216, 255, 79, 0.28);
+}
+
+.sim-sequence-editor > header p {
+  color: var(--muted);
+  font-size: 7px;
+  margin-top: 3px;
+}
+
+.sim-sequence-editor > header > button {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.sim-sequence-target select,
+.sim-sequence-editor input,
+.sim-sequence-editor select {
+  min-height: 44px;
+}
+
+.sim-sequence-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.sim-sequence-card {
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.sim-sequence-card.is-selected {
+  border-color: rgba(216, 255, 79, 0.62);
+  box-shadow: 0 0 0 1px rgba(216, 255, 79, 0.14);
+}
+
+.sim-sequence-card.is-current {
+  background: rgba(216, 255, 79, 0.055);
+}
+
+.sim-sequence-card > header {
+  align-items: center;
+}
+
+.sim-sequence-select {
+  align-items: center;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 7px;
+  grid-template-columns: 27px minmax(0, 1fr);
+  min-width: 0;
+  text-align: left;
+}
+
+.sim-sequence-select > span {
+  align-items: center;
+  background: rgba(216, 255, 79, 0.12);
+  border-radius: 50%;
+  color: var(--lime);
+  display: flex;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  height: 25px;
+  justify-content: center;
+  width: 25px;
+}
+
+.sim-sequence-select strong,
+.sim-sequence-select small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sim-sequence-select strong {
+  font-size: 9px;
+}
+
+.sim-sequence-select small {
+  color: var(--muted);
+  font-size: 7px;
+  grid-column: 2;
+}
+
+.sim-sequence-status {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  flex: 0 0 auto;
+  font-size: 7px;
+  font-weight: 800;
+  padding: 5px 7px;
+}
+
+.sim-sequence-status.is-current {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #07100d;
+}
+
+.sim-sequence-status.is-executed {
+  border-color: rgba(118, 221, 255, 0.45);
+  color: #a9ebff;
+}
+
+.sim-sequence-status.is-timed-out {
+  border-color: rgba(255, 128, 100, 0.55);
+  color: #ffb09e;
+}
+
+.sim-sequence-fields {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sim-sequence-fields label,
+.sim-instruction-move {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sim-sequence-actions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sim-sequence-actions button {
+  min-width: 0;
+  padding: 0 7px;
+}
+
+.sim-sequence-summary {
+  color: var(--muted-strong);
+  font-size: 7px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.sim-sequence-instructions {
+  border-top: 1px solid var(--line);
+  padding-top: 10px !important;
+}
+
+.sim-instruction-move {
+  grid-column: 1 / -1;
+}
+
+.sim-sequence-instructions .sim-instruction-actions button {
+  min-height: 44px;
+}
+
 .sim-instruction-queue {
   border-top-color: rgba(216, 255, 79, 0.28);
 }
@@ -3757,7 +3959,8 @@ button:disabled {
   padding: 6px 8px;
 }
 
-.sim-instruction-queue ol {
+.sim-instruction-queue ol,
+.sim-sequence-instructions {
   display: grid;
   gap: 8px;
   list-style: none;
@@ -3765,7 +3968,8 @@ button:disabled {
   padding: 0;
 }
 
-.sim-instruction-queue li {
+.sim-instruction-queue li,
+.sim-sequence-instructions > li {
   align-items: center;
   background: rgba(255, 255, 255, 0.026);
   border: 1px solid var(--line);
@@ -3776,7 +3980,8 @@ button:disabled {
   padding: 9px;
 }
 
-.sim-instruction-queue li.sim-instruction-cancelled {
+.sim-instruction-queue li.sim-instruction-cancelled,
+.sim-sequence-instructions > li.sim-instruction-cancelled {
   border-color: rgba(255, 128, 100, 0.55);
 }
 
@@ -4342,17 +4547,30 @@ button:disabled {
 
   .sim-action-picker > div,
   .sim-action-draft > div,
-  .sim-instruction-actions {
+  .sim-instruction-actions,
+  .sim-sequence-fields,
+  .sim-sequence-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sim-instruction-queue li {
+  .sim-instruction-queue li,
+  .sim-sequence-instructions > li {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
   .sim-instruction-queue li > label,
+  .sim-sequence-instructions > li > label,
   .sim-instruction-actions {
     grid-column: 1 / -1;
+  }
+
+  .sim-sequence-editor > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sim-sequence-editor > header > button {
+    width: 100%;
   }
 }
 
