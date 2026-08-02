@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -53,9 +54,19 @@ test("server-renders the actual-player scenario simulator", async () => {
   const playerButtons = html.match(/<button[^>]*data-sim-token=/gi) ?? [];
   const homePlayers = html.match(/data-sim-token="home:[^"]+"/gi) ?? [];
   const awayPlayers = html.match(/data-sim-token="away:[^"]+"/gi) ?? [];
+  const playerLabels = html.match(/class="sim-player-name"/gi) ?? [];
+  const compactPlayerLabels = html.match(/class="sim-player-name-short"/gi) ?? [];
+  const fullPlayerLabels = html.match(/class="sim-player-name-full"/gi) ?? [];
   assert.equal(playerButtons.length, 22);
   assert.equal(homePlayers.length, 11);
   assert.equal(awayPlayers.length, 11);
+  assert.equal(playerLabels.length, 22);
+  assert.equal(compactPlayerLabels.length, 22);
+  assert.equal(fullPlayerLabels.length, 22);
+  assert.match(
+    html,
+    /class="sim-player-name" aria-hidden="true"><span class="sim-player-name-short">J\. Hyeon-woo<\/span><span class="sim-player-name-full">Jo Hyeon-woo<\/span>/i,
+  );
   assert.match(
     html,
     /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-gk/i,
@@ -86,5 +97,15 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.doesNotMatch(
     html,
     /Prototype data|isInferred|provenance|secondaryPosition|codex-preview|Building your site|react-loading-skeleton/i,
+  );
+
+  const stylesheet = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(stylesheet, /\.sim-player-name\s*\{[^}]*pointer-events:\s*none;/s);
+  assert.doesNotMatch(
+    stylesheet,
+    /\.sim-player-name\s*\{\s*display:\s*none;/s,
   );
 });
