@@ -72,6 +72,7 @@ type Placement = PitchPoint & {
 
 type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
+type SetupStep = "teams" | "formations" | "simulator";
 
 function positionGroupClass(role: string) {
   return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
@@ -326,6 +327,56 @@ function selectLineup(
   }) as LineupParticipant[];
 }
 
+function SetupFormationPreview({
+  teamName,
+  formation,
+  lineup,
+  teamSide,
+}: {
+  teamName: string;
+  formation: Formation;
+  lineup: LineupParticipant[];
+  teamSide: TeamSide;
+}) {
+  const slots = teamSide === "away" ? mirroredSlots(formation) : formation.slots;
+
+  return (
+    <div className="sim-setup-preview">
+      <div className="sim-setup-mini-pitch" aria-hidden="true">
+        <div className="sim-setup-mini-halfway" />
+        <div className="sim-setup-mini-circle" />
+        {lineup.map((participant, index) => {
+          const slot = slots[index];
+          return (
+            <span
+              key={participant.participantId}
+              className={`sim-setup-mini-player sim-setup-mini-player-${teamSide}`}
+              style={
+                {
+                  left: `${slot.x}%`,
+                  top: `${slot.y}%`,
+                } as CSSProperties
+              }
+            >
+              <strong>{participant.player.number}</strong>
+              <small>{participant.role}</small>
+            </span>
+          );
+        })}
+      </div>
+      <ol className="sim-setup-lineup" aria-label={`${teamName} 자동 선발 명단`}>
+        {lineup.map((participant) => (
+          <li key={participant.participantId}>
+            <span>{participant.role}</span>
+            <strong>{participant.player.number}</strong>
+            <small>{compactPlayerName(participant.player.name)}</small>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function createPlacements(
   homeLineup: LineupParticipant[],
   awayLineup: LineupParticipant[],
@@ -499,6 +550,18 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   const [awayFormationId, setAwayFormationId] = useState(
     formations[1]?.id ?? formations[0]?.id ?? "",
   );
+  const [setupStep, setSetupStep] = useState<SetupStep>("teams");
+  const [hasEnteredSimulator, setHasEnteredSimulator] = useState(false);
+  const [draftHomeTeamId, setDraftHomeTeamId] = useState(defaultHomeTeamId);
+  const [draftAwayTeamId, setDraftAwayTeamId] = useState(defaultAwayTeamId);
+  const [draftHomeFormationId, setDraftHomeFormationId] = useState(
+    formations[0]?.id ?? "",
+  );
+  const [draftAwayFormationId, setDraftAwayFormationId] = useState(
+    formations[1]?.id ?? formations[0]?.id ?? "",
+  );
+  const [showSetupResetConfirmation, setShowSetupResetConfirmation] =
+    useState(false);
   const [selectedParticipantId, setSelectedParticipantId] =
     useState<ParticipantId | null>(null);
   const [placementOverrides, setPlacementOverrides] =
@@ -543,6 +606,62 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   const awayTeam = teams.find((team) => team.id === awayTeamId);
   const homeFormation = formationById(homeFormationId);
   const awayFormation = formationById(awayFormationId, 1);
+  const draftHomeTeam = teams.find((team) => team.id === draftHomeTeamId);
+  const draftAwayTeam = teams.find((team) => team.id === draftAwayTeamId);
+  const draftHomeFormation = formationById(draftHomeFormationId);
+  const draftAwayFormation = formationById(draftAwayFormationId, 1);
+  const setupTeamsAreDistinct =
+    Boolean(draftHomeTeamId) &&
+    Boolean(draftAwayTeamId) &&
+    draftHomeTeamId !== draftAwayTeamId;
+  const setupHasChanges =
+    draftHomeTeamId !== homeTeamId ||
+    draftAwayTeamId !== awayTeamId ||
+    draftHomeFormationId !== homeFormationId ||
+    draftAwayFormationId !== awayFormationId;
+
+  const setupPreviewState = useMemo(() => {
+    if (!setupTeamsAreDistinct) {
+      return {
+        home: [] as LineupParticipant[],
+        away: [] as LineupParticipant[],
+        error: "우리 팀과 상대 팀은 서로 다른 국가를 선택해야 합니다.",
+      };
+    }
+    try {
+      return {
+        home: selectLineup(
+          catalog,
+          draftHomeTeamId,
+          "home",
+          draftHomeFormation,
+        ),
+        away: selectLineup(
+          catalog,
+          draftAwayTeamId,
+          "away",
+          draftAwayFormation,
+        ),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        home: [] as LineupParticipant[],
+        away: [] as LineupParticipant[],
+        error:
+          error instanceof Error
+            ? error.message
+            : "포메이션 미리보기를 준비하지 못했습니다.",
+      };
+    }
+  }, [
+    catalog,
+    draftAwayFormation,
+    draftAwayTeamId,
+    draftHomeFormation,
+    draftHomeTeamId,
+    setupTeamsAreDistinct,
+  ]);
 
   const lineupState = useMemo(() => {
     try {
@@ -866,6 +985,13 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         : null,
     [run],
   );
+  const hasScenarioChanges =
+    instructions.length > 0 ||
+    Object.keys(placementOverrides).length > 0 ||
+    initialBallPosition !== null ||
+    ballOwnerId !== "" ||
+    run !== null ||
+    cursorMs > 0;
 
   const automaticPaths = useMemo(() => {
     if (!run) {
@@ -985,31 +1111,79 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
   }
 
-  function handleSetupChange(
-    side: TeamSide,
-    field: "team" | "formation",
-    value: string,
-  ) {
-    if (isPlaying) {
-      return;
-    }
-    if (side === "home" && field === "team") {
-      setHomeTeamId(value);
-    } else if (side === "away" && field === "team") {
-      setAwayTeamId(value);
-    } else if (side === "home") {
-      setHomeFormationId(value);
-    } else {
-      setAwayFormationId(value);
-    }
+  function resetScenarioForSetup(message: string) {
     setSelectedParticipantId(null);
+    setDraggingParticipantId(null);
+    setIsDraggingBall(false);
     setActiveAction(null);
     setInstructions([]);
     setManualActionTime(null);
+    setTargetCursor({ x: 50, y: 50 });
     setBallOwnerId("");
     setInitialBallPosition(null);
     setPlacementOverrides({});
-    invalidateCompilation("라인업 변경을 반영했습니다. 기존 지시는 초기화됩니다.");
+    dragRef.current = null;
+    ballDragRef.current = null;
+    suppressClickRef.current = null;
+    suppressBallClickRef.current = false;
+    nextInstructionOrderRef.current = 1;
+    invalidateCompilation(message);
+  }
+
+  function openInitialSetup() {
+    setIsPlaying(false);
+    setDraftHomeTeamId(homeTeamId);
+    setDraftAwayTeamId(awayTeamId);
+    setDraftHomeFormationId(homeFormationId);
+    setDraftAwayFormationId(awayFormationId);
+    setShowSetupResetConfirmation(false);
+    setSetupStep("formations");
+  }
+
+  function cancelInitialSetup() {
+    setDraftHomeTeamId(homeTeamId);
+    setDraftAwayTeamId(awayTeamId);
+    setDraftHomeFormationId(homeFormationId);
+    setDraftAwayFormationId(awayFormationId);
+    setShowSetupResetConfirmation(false);
+    setSetupStep("simulator");
+    setStatusMessage("기존 팀·포메이션 설정을 유지했습니다.");
+  }
+
+  function applyInitialSetup() {
+    if (!setupTeamsAreDistinct || setupPreviewState.error) {
+      return;
+    }
+
+    setHomeTeamId(draftHomeTeamId);
+    setAwayTeamId(draftAwayTeamId);
+    setHomeFormationId(draftHomeFormationId);
+    setAwayFormationId(draftAwayFormationId);
+    setHasEnteredSimulator(true);
+    setShowSetupResetConfirmation(false);
+    setSetupStep("simulator");
+
+    if (!hasEnteredSimulator || setupHasChanges) {
+      resetScenarioForSetup(
+        hasEnteredSimulator
+          ? "새 팀·포메이션을 적용하고 기존 배치·지시·재생 상태를 초기화했습니다."
+          : "팀·포메이션 설정을 적용했습니다. 전술 지시를 시작하세요.",
+      );
+    } else {
+      setStatusMessage("기존 팀·포메이션 설정을 유지했습니다.");
+    }
+  }
+
+  function requestInitialSetupApply() {
+    if (
+      hasEnteredSimulator &&
+      setupHasChanges &&
+      hasScenarioChanges
+    ) {
+      setShowSetupResetConfirmation(true);
+      return;
+    }
+    applyInitialSetup();
   }
 
   function clampToVisiblePitch(x: number, y: number) {
@@ -1888,6 +2062,296 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     );
   }
 
+  if (setupStep !== "simulator") {
+    const isTeamStep = setupStep === "teams";
+    const primaryActionDisabled = isTeamStep
+      ? !setupTeamsAreDistinct
+      : Boolean(setupPreviewState.error);
+
+    return (
+      <section
+        className="sim-workspace sim-setup-workspace"
+        aria-labelledby="sim-setup-flow-title"
+        data-sim-setup-step={setupStep}
+      >
+        <header className="sim-setup-flow-header">
+          <div>
+            <p className="sim-eyebrow">Match setup</p>
+            <h1 id="sim-setup-flow-title">경기 설정</h1>
+            <p>
+              대결할 두 팀과 포메이션을 정한 뒤 배치를 확인하고 전술판을
+              시작하세요.
+            </p>
+          </div>
+          {hasEnteredSimulator ? (
+            <button
+              type="button"
+              className="sim-setup-quiet-button"
+              onClick={cancelInitialSetup}
+            >
+              변경 취소
+            </button>
+          ) : null}
+        </header>
+
+        <nav className="sim-setup-steps" aria-label="초기 설정 단계">
+          <ol>
+            <li
+              className={isTeamStep ? "is-current" : "is-complete"}
+              aria-current={isTeamStep ? "step" : undefined}
+            >
+              <span>1</span>
+              <div>
+                <strong>팀 선택</strong>
+                <small>대결 국가 지정</small>
+              </div>
+            </li>
+            <li
+              className={!isTeamStep ? "is-current" : ""}
+              aria-current={!isTeamStep ? "step" : undefined}
+            >
+              <span>2</span>
+              <div>
+                <strong>포메이션</strong>
+                <small>자동 배치 확인</small>
+              </div>
+            </li>
+          </ol>
+        </nav>
+
+        {isTeamStep ? (
+          <div className="sim-setup-stage" aria-labelledby="sim-team-step-title">
+            <div className="sim-setup-stage-heading">
+              <p>Step 01</p>
+              <h2 id="sim-team-step-title">대결 팀을 선택하세요</h2>
+              <span>동일 국가는 양쪽에 동시에 선택할 수 없습니다.</span>
+            </div>
+
+            <div className="sim-team-choice-grid">
+              <label className="sim-team-choice" htmlFor="sim-setup-home-team">
+                <span>우리 팀</span>
+                <select
+                  id="sim-setup-home-team"
+                  value={draftHomeTeamId}
+                  onChange={(event) => setDraftHomeTeamId(event.target.value)}
+                >
+                  {teams.map((team) => (
+                    <option
+                      key={team.id}
+                      value={team.id}
+                      disabled={team.id === draftAwayTeamId}
+                    >
+                      {team.name} · Group {team.group}
+                    </option>
+                  ))}
+                </select>
+                <strong>{draftHomeTeam?.name ?? "팀을 선택하세요"}</strong>
+                <small>
+                  {draftHomeTeam
+                    ? `Group ${draftHomeTeam.group} · 선수 ${draftHomeTeam.players.length}명`
+                    : "선수 데이터 없음"}
+                </small>
+              </label>
+
+              <div className="sim-setup-versus" aria-hidden="true">
+                VS
+              </div>
+
+              <label className="sim-team-choice" htmlFor="sim-setup-away-team">
+                <span>상대 팀</span>
+                <select
+                  id="sim-setup-away-team"
+                  value={draftAwayTeamId}
+                  onChange={(event) => setDraftAwayTeamId(event.target.value)}
+                >
+                  {teams.map((team) => (
+                    <option
+                      key={team.id}
+                      value={team.id}
+                      disabled={team.id === draftHomeTeamId}
+                    >
+                      {team.name} · Group {team.group}
+                    </option>
+                  ))}
+                </select>
+                <strong>{draftAwayTeam?.name ?? "팀을 선택하세요"}</strong>
+                <small>
+                  {draftAwayTeam
+                    ? `Group ${draftAwayTeam.group} · 선수 ${draftAwayTeam.players.length}명`
+                    : "선수 데이터 없음"}
+                </small>
+              </label>
+            </div>
+
+            {!setupTeamsAreDistinct ? (
+              <p className="sim-setup-error" role="alert">
+                우리 팀과 상대 팀은 서로 다른 국가를 선택해야 합니다.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div
+            className="sim-setup-stage sim-formation-stage"
+            aria-labelledby="sim-formation-step-title"
+          >
+            <div className="sim-setup-stage-heading">
+              <p>Step 02</p>
+              <h2 id="sim-formation-step-title">포메이션과 자동 배치를 확인하세요</h2>
+              <span>양 팀의 포메이션을 선택하면 기본 선발과 위치가 바뀝니다.</span>
+            </div>
+
+            <div className="sim-formation-team-grid">
+              <section className="sim-formation-team-card" aria-labelledby="sim-home-formation-title">
+                <header>
+                  <p>우리 팀</p>
+                  <h3 id="sim-home-formation-title">{draftHomeTeam?.name}</h3>
+                </header>
+                <div className="sim-formation-options" role="group" aria-label="우리 팀 포메이션 선택">
+                  {formations.map((formation) => (
+                    <button
+                      key={formation.id}
+                      type="button"
+                      className={
+                        formation.id === draftHomeFormationId
+                          ? "is-selected"
+                          : ""
+                      }
+                      aria-pressed={formation.id === draftHomeFormationId}
+                      onClick={() => setDraftHomeFormationId(formation.id)}
+                    >
+                      <strong>{formation.label}</strong>
+                      <span>{formation.name}</span>
+                      <small>{formation.description}</small>
+                    </button>
+                  ))}
+                </div>
+                <SetupFormationPreview
+                  teamName={draftHomeTeam?.name ?? "우리 팀"}
+                  formation={draftHomeFormation}
+                  lineup={setupPreviewState.home}
+                  teamSide="home"
+                />
+              </section>
+
+              <section className="sim-formation-team-card" aria-labelledby="sim-away-formation-title">
+                <header>
+                  <p>상대 팀</p>
+                  <h3 id="sim-away-formation-title">{draftAwayTeam?.name}</h3>
+                </header>
+                <div className="sim-formation-options" role="group" aria-label="상대 팀 포메이션 선택">
+                  {formations.map((formation) => (
+                    <button
+                      key={formation.id}
+                      type="button"
+                      className={
+                        formation.id === draftAwayFormationId
+                          ? "is-selected"
+                          : ""
+                      }
+                      aria-pressed={formation.id === draftAwayFormationId}
+                      onClick={() => setDraftAwayFormationId(formation.id)}
+                    >
+                      <strong>{formation.label}</strong>
+                      <span>{formation.name}</span>
+                      <small>{formation.description}</small>
+                    </button>
+                  ))}
+                </div>
+                <SetupFormationPreview
+                  teamName={draftAwayTeam?.name ?? "상대 팀"}
+                  formation={draftAwayFormation}
+                  lineup={setupPreviewState.away}
+                  teamSide="away"
+                />
+              </section>
+            </div>
+
+            <div className="sim-setup-summary" aria-label="선택한 경기 설정">
+              <span>
+                우리 팀 <strong>{draftHomeTeam?.name}</strong> · {draftHomeFormation.label}
+              </span>
+              <i aria-hidden="true">VS</i>
+              <span>
+                상대 팀 <strong>{draftAwayTeam?.name}</strong> · {draftAwayFormation.label}
+              </span>
+            </div>
+
+            {setupPreviewState.error ? (
+              <p className="sim-setup-error" role="alert">
+                {setupPreviewState.error}
+              </p>
+            ) : null}
+
+            {showSetupResetConfirmation ? (
+              <section
+                className="sim-setup-reset-confirmation"
+                role="alertdialog"
+                aria-labelledby="sim-setup-reset-title"
+                aria-describedby="sim-setup-reset-description"
+              >
+                <div>
+                  <p>설정 변경</p>
+                  <h3 id="sim-setup-reset-title">현재 전술 작업을 초기화할까요?</h3>
+                  <span id="sim-setup-reset-description">
+                    변경을 적용하면 선수 시작 위치, 공 위치·소유, 등록한 지시와
+                    재생 결과가 초기화됩니다.
+                  </span>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className="sim-setup-quiet-button"
+                    onClick={() => setShowSetupResetConfirmation(false)}
+                    autoFocus
+                  >
+                    계속 검토
+                  </button>
+                  <button type="button" onClick={applyInitialSetup}>
+                    초기화하고 적용
+                  </button>
+                </div>
+              </section>
+            ) : null}
+          </div>
+        )}
+
+        <footer className="sim-setup-actions">
+          {!isTeamStep ? (
+            <button
+              type="button"
+              className="sim-setup-quiet-button"
+              onClick={() => {
+                setShowSetupResetConfirmation(false);
+                setSetupStep("teams");
+              }}
+            >
+              이전 단계
+            </button>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            disabled={primaryActionDisabled || showSetupResetConfirmation}
+            onClick={() => {
+              if (isTeamStep) {
+                setSetupStep("formations");
+                return;
+              }
+              requestInitialSetupApply();
+            }}
+          >
+            {isTeamStep
+              ? "포메이션 선택"
+              : hasEnteredSimulator
+                ? "변경 적용"
+                : "전술 설정 시작"}
+          </button>
+        </footer>
+      </section>
+    );
+  }
+
   return (
     <section
       className="sim-workspace"
@@ -1956,69 +2420,22 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         <aside className="sim-setup-panel" aria-labelledby="sim-setup-title">
           <h3 id="sim-setup-title">장면 설정</h3>
 
-          <fieldset className="sim-team-setup" disabled={isPlaying}>
-            <legend>우리 팀</legend>
-            <label htmlFor="sim-home-team">국가</label>
-            <select
-              id="sim-home-team"
-              value={homeTeamId}
-              onChange={(event) =>
-                handleSetupChange("home", "team", event.target.value)
-              }
-            >
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name} · Group {team.group}
-                </option>
-              ))}
-            </select>
-            <label htmlFor="sim-home-formation">포메이션</label>
-            <select
-              id="sim-home-formation"
-              value={homeFormationId}
-              onChange={(event) =>
-                handleSetupChange("home", "formation", event.target.value)
-              }
-            >
-              {formations.map((formation) => (
-                <option key={formation.id} value={formation.id}>
-                  {formation.label} · {formation.name}
-                </option>
-              ))}
-            </select>
-          </fieldset>
-
-          <fieldset className="sim-team-setup" disabled={isPlaying}>
-            <legend>상대 팀</legend>
-            <label htmlFor="sim-away-team">국가</label>
-            <select
-              id="sim-away-team"
-              value={awayTeamId}
-              onChange={(event) =>
-                handleSetupChange("away", "team", event.target.value)
-              }
-            >
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name} · Group {team.group}
-                </option>
-              ))}
-            </select>
-            <label htmlFor="sim-away-formation">포메이션</label>
-            <select
-              id="sim-away-formation"
-              value={awayFormationId}
-              onChange={(event) =>
-                handleSetupChange("away", "formation", event.target.value)
-              }
-            >
-              {formations.map((formation) => (
-                <option key={formation.id} value={formation.id}>
-                  {formation.label} · {formation.name}
-                </option>
-              ))}
-            </select>
-          </fieldset>
+          <section className="sim-current-match" aria-label="현재 팀과 포메이션">
+            <div>
+              <span>우리 팀</span>
+              <strong>{homeTeam?.name}</strong>
+              <small>{homeFormation.label} · {homeFormation.name}</small>
+            </div>
+            <i aria-hidden="true">VS</i>
+            <div>
+              <span>상대 팀</span>
+              <strong>{awayTeam?.name}</strong>
+              <small>{awayFormation.label} · {awayFormation.name}</small>
+            </div>
+            <button type="button" onClick={openInitialSetup}>
+              팀·포메이션 변경
+            </button>
+          </section>
 
           <label className="sim-field" htmlFor="sim-duration">
             <span>장면 길이</span>

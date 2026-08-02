@@ -23,7 +23,7 @@ async function render() {
   );
 }
 
-test("server-renders the actual-player scenario simulator", async () => {
+test("server-renders the staged match setup before the simulator", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -32,71 +32,23 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.match(html, /<html[^>]*lang="ko"/i);
   assert.match(html, /<title>FTA \| Football Tactics Architect<\/title>/i);
   assert.match(html, /<main[^>]*class="sim-page"/i);
-  assert.match(html, /<h1[^>]*>선수 움직임·패스 시뮬레이션<\/h1>/i);
-  assert.match(html, /class="sim-pitch"/i);
-  assert.match(html, /aria-live="polite"/i);
-  assert.match(html, /id="sim-home-team"/i);
-  assert.match(html, /id="sim-away-team"/i);
-  assert.match(html, /South Korea(?:<!-- -->)? 공격 ↑/i);
-  assert.match(html, /Brazil(?:<!-- -->)? 공격 ↓/i);
-  assert.match(
-    html,
-    /aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"/i,
-  );
-  assert.match(html, /초기 공 위치·소유/i);
-  assert.match(html, /id="sim-instruction-editor-title">선수 지시</i);
-  assert.match(html, /이동·볼 운반·패스 액션/i);
-  assert.match(html, /<ol[^>]*aria-label="등록한 선수 지시"/i);
-  assert.match(html, /실행 시각순 · 같은 시각은 지정 순서/i);
-  assert.match(html, /장면 길이/i);
+  assert.match(html, /data-sim-setup-step="teams"/i);
+  assert.match(html, /<h1[^>]*id="sim-setup-flow-title"[^>]*>경기 설정<\/h1>/i);
+  assert.match(html, /aria-label="초기 설정 단계"/i);
+  assert.match(html, /대결 국가 지정/i);
+  assert.match(html, /자동 배치 확인/i);
+  assert.match(html, /id="sim-setup-home-team"/i);
+  assert.match(html, /id="sim-setup-away-team"/i);
+  assert.match(html, /South Korea/i);
+  assert.match(html, /Brazil/i);
+  assert.match(html, /동일 국가는 양쪽에 동시에 선택할 수 없습니다/i);
+  assert.match(html, /포메이션 선택/i);
+  assert.doesNotMatch(html, /class="sim-pitch"/i);
+  assert.doesNotMatch(html, /id="sim-home-team"|id="sim-away-team"/i);
   assert.match(
     html,
     /property="og:image"[^>]*content="http:\/\/localhost(?::3000)?\/og\.png"/i,
   );
-
-  const playerButtons = html.match(/<button[^>]*data-sim-token=/gi) ?? [];
-  const homePlayers = html.match(/data-sim-token="home:[^"]+"/gi) ?? [];
-  const awayPlayers = html.match(/data-sim-token="away:[^"]+"/gi) ?? [];
-  const playerLabels = html.match(/class="sim-player-name"/gi) ?? [];
-  const compactPlayerLabels = html.match(/class="sim-player-name-short"/gi) ?? [];
-  const fullPlayerLabels = html.match(/class="sim-player-name-full"/gi) ?? [];
-  assert.equal(playerButtons.length, 22);
-  assert.equal(homePlayers.length, 11);
-  assert.equal(awayPlayers.length, 11);
-  assert.equal(playerLabels.length, 22);
-  assert.equal(compactPlayerLabels.length, 22);
-  assert.equal(fullPlayerLabels.length, 22);
-  assert.match(
-    html,
-    /class="sim-player-name" aria-hidden="true"><span class="sim-player-name-short">J\. Hyeon-woo<\/span><span class="sim-player-name-full">Jo Hyeon-woo<\/span>/i,
-  );
-  assert.match(
-    html,
-    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-gk/i,
-  );
-  assert.match(
-    html,
-    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-df/i,
-  );
-  assert.match(
-    html,
-    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-mf/i,
-  );
-  assert.match(
-    html,
-    /data-sim-token="home:[^"]+"[^>]*class="[^"]*sim-player-position-fw/i,
-  );
-  assert.match(html, /<button[^>]*data-sim-ball/i);
-  assert.match(
-    html,
-    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 선택 후 지시 패널에서 액션 지정"/i,
-  );
-  assert.match(
-    html,
-    /aria-label="상대 팀 Alisson, 1번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 자동 반응 선수 정보 보기"/i,
-  );
-  assert.match(html, /선수와 공을 드래그하면 시작 위치가 바뀝니다/i);
-  assert.doesNotMatch(html, /id="sim-pass-(?:from|target|time)"/i);
 
   assert.doesNotMatch(
     html,
@@ -107,6 +59,11 @@ test("server-renders the actual-player scenario simulator", async () => {
     new URL("../app/globals.css", import.meta.url),
     "utf8",
   );
+  assert.match(stylesheet, /\.sim-setup-workspace\s*\{/s);
+  assert.match(stylesheet, /\.sim-team-choice-grid\s*\{/s);
+  assert.match(stylesheet, /\.sim-formation-team-grid\s*\{/s);
+  assert.match(stylesheet, /\.sim-setup-mini-pitch\s*\{/s);
+  assert.match(stylesheet, /\.sim-setup-reset-confirmation\s*\{/s);
   assert.match(stylesheet, /\.sim-player-name\s*\{[^}]*pointer-events:\s*none;/s);
   assert.match(stylesheet, /\.sim-target-cursor\s*\{/s);
   assert.match(stylesheet, /\.sim-player-pass-target\s+\.sim-player-disc\s*\{/s);
