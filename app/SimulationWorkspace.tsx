@@ -341,6 +341,7 @@ type SimulationFrame = {
         | "organized-defense";
       inPossession: boolean;
       progress: number | null;
+      actualDefensiveLineY: number | null;
       defensiveLineY: number;
       defensiveWidth: number;
       pressureCount: number;
@@ -4641,7 +4642,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       className={`sim-defensive-line sim-defensive-line-${teamSide}${tactics.offsideTrapActive ? " is-offside" : ""}`}
                       style={
                         {
-                          top: `${tactics.defensiveLineY}%`,
+                          top: `${tactics.actualDefensiveLineY ?? tactics.defensiveLineY}%`,
                         } as CSSProperties
                       }
                       aria-hidden="true"

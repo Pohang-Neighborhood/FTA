@@ -967,6 +967,15 @@ test("keeps the remaining back line on one collective target after pressure and 
   assert.ok(linePlayers.length >= 2);
   const lineTargets = linePlayers.map((player) => player.target.y);
   assert.ok(Math.max(...lineTargets) - Math.min(...lineTargets) < 0.01);
+
+  const backLineDepths = ["away:lb", "away:lcb", "away:rcb", "away:rb"]
+    .map((playerId) => frame.players[playerId].position.y)
+    .sort((left, right) => left - right);
+  const actualMedian =
+    (backLineDepths[1] + backLineDepths[2]) / 2;
+  assert.ok(
+    Math.abs(frame.tactics.away.actualDefensiveLineY - actualMedian) < 0.000001,
+  );
 });
 
 test("moves the whole back line together when the offside condition is stable", () => {
@@ -1051,26 +1060,26 @@ test("reports the offside line as active only after the back line adopts it", ()
   );
 });
 
-test("drops the offside line while a pass is in flight", () => {
+test("keeps offside status aligned with stabilized back-line behavior", () => {
   const run = compileSimulation(
     createScenario({
-      durationMs: 2_000,
+      durationMs: 2_500,
       players: createPlayers({
         moveAwayFromPassLane: true,
         homeOverrides: {
-          "home:st": { position: { x: 50, y: 60 } },
-          "home:lcm": { position: { x: 50, y: 30 } },
+          "home:lcm": { position: { x: 50, y: 60 } },
+          "home:rcm": { position: { x: 50, y: 30 } },
         },
       }),
-      initialBallOwnerId: "home:st",
+      initialBallOwnerId: "home:lcm",
       manualRoutes: [
         {
-          playerId: "home:st",
+          playerId: "home:lcm",
           startAtMs: 0,
           waypoints: [{ x: 50, y: 60 }],
         },
         {
-          playerId: "home:lcm",
+          playerId: "home:rcm",
           startAtMs: 0,
           waypoints: [{ x: 50, y: 30 }],
         },
@@ -1078,9 +1087,9 @@ test("drops the offside line while a pass is in flight", () => {
       passes: [
         {
           id: "late-pass",
-          fromPlayerId: "home:st",
-          toPlayerId: "home:lcm",
-          atMs: 1_000,
+          fromPlayerId: "home:lcm",
+          toPlayerId: "home:rcm",
+          atMs: 1_500,
         },
       ],
     }),
@@ -1090,9 +1099,54 @@ test("drops the offside line while a pass is in flight", () => {
   );
 
   assert.ok(inFlightFrames.length > 0);
+  assert.ok(inFlightFrames.some((frame) => frame.tactics.away.offsideTrapActive));
+  assert.ok(inFlightFrames.some((frame) => !frame.tactics.away.offsideTrapActive));
+  for (const frame of inFlightFrames) {
+    const wholeBackLineUsesTrap = ["away:lb", "away:lcb", "away:rcb", "away:rb"]
+      .every((playerId) => frame.players[playerId].behavior === "offside-line");
+    assert.equal(frame.tactics.away.offsideTrapActive, wholeBackLineUsesTrap);
+  }
+});
+
+test("does not request an offside trap when a back-line player is manual", () => {
+  const players = createPlayers({
+    awayOverrides: {
+      "away:lcm": { position: { x: 50, y: 40 } },
+    },
+  });
+  const automaticRun = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "away:lcm",
+      manualRoutes: [],
+    }),
+  );
+  const manualRun = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "away:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lb",
+          startAtMs: 0,
+          waypoints: [{ x: 15, y: 73 }],
+        },
+      ],
+    }),
+  );
+
   assert.ok(
-    inFlightFrames.every(
-      (frame) => frame.tactics.away.offsideTrapActive === false,
+    automaticRun.frames.some(
+      (frame) => frame.tactics.home.offsideTrapRequested,
+    ),
+  );
+  assert.ok(
+    manualRun.frames.every(
+      (frame) =>
+        !frame.tactics.home.offsideTrapRequested &&
+        !frame.tactics.home.offsideTrapActive,
     ),
   );
 });
