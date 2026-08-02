@@ -24,7 +24,6 @@ import {
   appendTacticalInstruction,
   createDefaultTacticalSequence,
   isMovementInstruction,
-  reorderTacticalInstruction,
   reorderTacticalSequence,
   removeTacticalInstruction,
   removeTacticalSequence,
@@ -142,7 +141,6 @@ type TacticalSequence = {
   id: string;
   order: number;
   name: string;
-  startAtMs: number;
   instructions: TacticalInstruction[];
 };
 
@@ -183,6 +181,7 @@ type SimulationEvent = {
   type: string;
   atMs: number;
   passId?: string;
+  sequenceId?: string;
   instructionId?: string;
   instructionType?: string;
   playerId?: string;
@@ -244,6 +243,17 @@ type SimulationRun = {
   durationMs: number;
   frames: SimulationFrame[];
   config: Record<string, number>;
+  sequenceTimeline?: Array<{
+    id: string;
+    order: number;
+    name: string;
+    instructionIds: string[];
+    startedAtMs: number | null;
+    completedAtMs: number | null;
+    status: "waiting" | "running" | "completed" | "timed_out";
+    startSnapshot: SimulationFrame | null;
+    endSnapshot: SimulationFrame | null;
+  }>;
 };
 
 type SimulationSummary = {
@@ -281,19 +291,17 @@ function createWorkspaceSequence(
   id: string,
   order: number,
   name: string,
-  startAtMs: number,
 ) {
   return createDefaultTacticalSequence({
     id,
     order,
     name,
-    startAtMs,
     instructions: [],
   }) as TacticalSequence;
 }
 
 function createInitialSequences() {
-  return [createWorkspaceSequence(INITIAL_SEQUENCE_ID, 1, "시퀀스 1", 0)];
+  return [createWorkspaceSequence(INITIAL_SEQUENCE_ID, 1, "시퀀스 1")];
 }
 
 const abilityLabels: Array<[keyof SimulatorPlayer["abilities"], string]> = [
@@ -357,14 +365,10 @@ function normalizedDuration(value: number) {
 
 function normalizedSequenceOffset(
   value: number,
-  sequenceStartAtMs: number,
-  sequenceEndAtMs: number,
+  durationMs: number,
 ) {
   const finiteValue = Number.isFinite(value) ? value : 0;
-  const maximum = Math.max(
-    0,
-    sequenceEndAtMs - sequenceStartAtMs - SIMULATION_TICK_MS,
-  );
+  const maximum = Math.max(0, durationMs - SIMULATION_TICK_MS);
   return Math.min(
     maximum,
     Math.max(
@@ -383,18 +387,13 @@ function normalizeManualActionOffsetForTimeline(
     return null;
   }
   const sorted = sortTacticalSequences(sequences) as TacticalSequence[];
-  const index = sorted.findIndex(
+  const sequence = sorted.find(
     (sequence) => sequence.id === current.sequenceId,
   );
-  if (index < 0) {
+  if (!sequence) {
     return null;
   }
-  const sequence = sorted[index];
-  const atMs = normalizedSequenceOffset(
-    current.atMs,
-    sequence.startAtMs,
-    sorted[index + 1]?.startAtMs ?? durationMs,
-  );
+  const atMs = normalizedSequenceOffset(current.atMs, durationMs);
   return atMs === current.atMs ? current : { ...current, atMs };
 }
 
@@ -620,21 +619,19 @@ function eventDescription(
             : event.reason ?? "실행 조건 불충족";
       return `${seconds(event.atMs)} ${playerName(event.playerId)} ${action} 취소 · ${reason}`;
     }
+    case "instruction_completed":
+      return `${seconds(event.atMs)} ${playerName(event.playerId)} ${event.instructionType === "carry" ? "볼 운반" : "이동"} 완료`;
+    case "sequence_started":
+      return `${seconds(event.atMs)} ${event.sequenceId ?? "시퀀스"} 시작`;
+    case "sequence_completed":
+      return `${seconds(event.atMs)} ${event.sequenceId ?? "시퀀스"} 완료`;
+    case "sequence_timed_out":
+      return `${seconds(event.atMs)} ${event.sequenceId ?? "시퀀스"} 시간 초과`;
     case "ball_recovered":
       return `${seconds(event.atMs)} ${playerName(event.playerId)} 루즈볼 회수`;
     default:
       return `${seconds(event.atMs)} ${event.type}`;
   }
-}
-
-function instructionCancellationLabel(reason: string) {
-  if (reason === "player_busy") {
-    return "이전 이동이 끝나지 않음";
-  }
-  if (reason === "no_possession") {
-    return "공 소유권 없음";
-  }
-  return reason;
 }
 
 type WorkspaceRunSource = {
@@ -1013,16 +1010,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     () => sortTacticalSequences(sequences) as TacticalSequence[],
     [sequences],
   );
-  const sequenceEndAtMsById = useMemo(
-    () =>
-      new Map(
-        sortedSequences.map((sequence, index) => [
-          sequence.id,
-          sortedSequences[index + 1]?.startAtMs ?? durationMs,
-        ]),
-      ),
-    [durationMs, sortedSequences],
-  );
   const effectiveSelectedSequenceId = sortedSequences.some(
     (sequence) => sequence.id === selectedSequenceId,
   )
@@ -1095,13 +1082,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   }, [activeAction, sortedSequences]);
   const displayInstructions = useMemo(
     () =>
-      displaySequences.flatMap(
-        (sequence) =>
-          sortTacticalInstructions(
-            sequence.instructions,
-          ) as TacticalInstruction[],
-      ),
-    [displaySequences],
+      (sortTacticalInstructions(
+        displaySequences.find(
+          (sequence) => sequence.id === effectiveSelectedSequenceId,
+        )?.instructions ?? [],
+      ) as TacticalInstruction[]),
+    [displaySequences, effectiveSelectedSequenceId],
   );
   const instructionPreviewRun = useMemo(() => {
     if (draggingParticipantId || isDraggingBall) {
@@ -1135,18 +1121,20 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     ? instructionPreviewRun
     : run ?? instructionPreviewRun;
   const instructionStartAtMsById = useMemo(() => {
-    return new Map<string, number>(
-      displaySequences.flatMap((sequence) =>
-        sequence.instructions.map(
-          (instruction) =>
-            [
-              instruction.id,
-              sequence.startAtMs + instruction.atMs,
-            ] as const,
-        ),
-      ),
-    );
-  }, [displaySequences]);
+    const starts = new Map<string, number>();
+    for (const sequence of displaySequences) {
+      const startedAtMs = routeRun?.sequenceTimeline?.find(
+        (timeline) => timeline.id === sequence.id,
+      )?.startedAtMs;
+      if (startedAtMs === null || startedAtMs === undefined) {
+        continue;
+      }
+      for (const instruction of sequence.instructions) {
+        starts.set(instruction.id, startedAtMs + instruction.atMs);
+      }
+    }
+    return starts;
+  }, [displaySequences, routeRun]);
   const instructionCancellationById = useMemo(() => {
     const cancellations = new Map<string, string>();
     const events =
@@ -1214,7 +1202,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   ]);
   const plannedPassPaths = useMemo(
     () =>
-      sortedInstructions.flatMap((instruction) => {
+      displayInstructions.flatMap((instruction) => {
         if (instruction.type !== "pass") {
           return [];
         }
@@ -1255,7 +1243,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       instructionStartAtMsById,
       placements,
       routeRun,
-      sortedInstructions,
+      displayInstructions,
     ],
   );
   const selectedManualActionOffset =
@@ -1265,13 +1253,24 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       : null;
   const nextActionAtMs = selectedManualActionOffset?.atMs ?? 0;
 
-  const frame = useMemo(
+  const selectedSequenceStartFrame = useMemo(
+    () =>
+      instructionPreviewRun?.sequenceTimeline?.find(
+        (timeline) => timeline.id === effectiveSelectedSequenceId,
+      )?.startSnapshot ?? null,
+    [effectiveSelectedSequenceId, instructionPreviewRun],
+  );
+  const playbackFrame = useMemo(
     () =>
       run
         ? (sampleSimulation(run, cursorMs) as SimulationFrame)
         : null,
     [cursorMs, run],
   );
+  const frame =
+    isPlaying || cursorMs > 0
+      ? playbackFrame
+      : selectedSequenceStartFrame ?? playbackFrame;
   const summary = useMemo(
     () =>
       run
@@ -1290,7 +1289,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     cursorMs > 0;
 
   const automaticPaths = useMemo(() => {
-    if (!run) {
+    if (!run || (!isPlaying && cursorMs === 0)) {
       return [] as Array<{ participantId: string; points: PitchPoint[] }>;
     }
     return participants
@@ -1307,7 +1306,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           ),
         ),
       }));
-  }, [instructedPlayerIds, participants, placements, run]);
+  }, [cursorMs, instructedPlayerIds, isPlaying, participants, placements, run]);
 
   const visibleEvents = useMemo(
     () =>
@@ -1319,20 +1318,45 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     [cursorMs, run],
   );
   const sequenceStatusById = useMemo(() => {
-    const statuses = new Map<string, "waiting" | "current" | "executed">();
-    sortedSequences.forEach((sequence, index) => {
-      const endAtMs = sortedSequences[index + 1]?.startAtMs ?? durationMs;
+    const statuses = new Map<
+      string,
+      "waiting" | "current" | "executed" | "timed-out"
+    >();
+    if (!isPlaying && cursorMs === 0) {
+      const selectedIndex = sortedSequences.findIndex(
+        (sequence) => sequence.id === effectiveSelectedSequenceId,
+      );
+      sortedSequences.forEach((sequence, index) => {
+        statuses.set(
+          sequence.id,
+          index < selectedIndex
+            ? "executed"
+            : index === selectedIndex
+              ? "current"
+              : "waiting",
+        );
+      });
+      return statuses;
+    }
+    const timeline = run?.sequenceTimeline ?? [];
+    sortedSequences.forEach((sequence) => {
+      const entry = timeline.find((candidate) => candidate.id === sequence.id);
       statuses.set(
         sequence.id,
-        cursorMs < sequence.startAtMs
+        entry?.startedAtMs === null || entry?.startedAtMs === undefined ||
+          cursorMs < entry.startedAtMs
           ? "waiting"
-          : cursorMs >= endAtMs
+          : entry.status === "timed_out" && cursorMs >= durationMs
+            ? "timed-out"
+          : entry.completedAtMs !== null &&
+              entry.completedAtMs !== undefined &&
+              cursorMs >= entry.completedAtMs
             ? "executed"
             : "current",
       );
     });
     return statuses;
-  }, [cursorMs, durationMs, sortedSequences]);
+  }, [cursorMs, durationMs, effectiveSelectedSequenceId, isPlaying, run, sortedSequences]);
   const currentPlaybackSequence = isPlaying
     ? sortedSequences.find(
         (sequence) => sequenceStatusById.get(sequence.id) === "current",
@@ -2076,8 +2100,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     const atMs = normalizedSequenceOffset(
       instruction?.atMs ?? nextActionAtMs,
-      targetSequence.startAtMs,
-      sequenceEndAtMsById.get(targetSequence.id) ?? durationMs,
+      durationMs,
     );
     const movement = instruction && isMovementInstruction(instruction)
       ? (instruction as MovementInstruction)
@@ -2094,7 +2117,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       ?.waypoints.at(-1);
     const absoluteStartAtMs = instruction?.id
       ? instructionStartAtMsById.get(instruction.id)
-      : targetSequence.startAtMs + atMs;
+      : (instructionPreviewRun?.sequenceTimeline?.find(
+          (timeline) => timeline.id === targetSequence.id,
+        )?.startedAtMs ?? 0) + atMs;
     const instructionFrame =
       instructionPreviewRun && absoluteStartAtMs !== undefined
       ? (sampleSimulation(
@@ -2342,44 +2367,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     return true;
   }
 
-  function updateInstructionTime(
+  function removeInstruction(
     sequenceId: string,
     instructionId: string,
-    value: number,
+    allowActiveAction = false,
   ) {
-    if (isPlaying || activeAction) {
-      return;
-    }
-    const sequence = sequences.find((candidate) => candidate.id === sequenceId);
-    const instruction = sequence?.instructions.find(
-      (candidate) => candidate.id === instructionId,
-    );
-    if (!sequence || !instruction) {
-      return;
-    }
-    const nextInstruction = {
-      ...instruction,
-      atMs: normalizedSequenceOffset(
-        value,
-        sequence.startAtMs,
-        sequenceEndAtMsById.get(sequence.id) ?? durationMs,
-      ),
-    } as TacticalInstruction;
-    const nextInstructions = replaceTacticalInstruction(
-      sequence.instructions,
-      nextInstruction,
-    ) as TacticalInstruction[];
-    setSequences(
-      replaceTacticalSequence(sequences, {
-        ...sequence,
-        instructions: nextInstructions,
-      }) as TacticalSequence[],
-    );
-    invalidateCompilation("시퀀스 안의 상대 실행 시각을 변경했습니다.");
-  }
-
-  function removeInstruction(sequenceId: string, instructionId: string) {
-    if (isPlaying || activeAction) {
+    if (isPlaying || (activeAction && !allowActiveAction)) {
       return;
     }
     const sequence = sequences.find((candidate) => candidate.id === sequenceId);
@@ -2396,110 +2389,8 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         instructions: nextInstructions,
       }) as TacticalSequence[],
     );
+    setActiveAction(null);
     invalidateCompilation("선수 지시를 삭제했습니다.");
-  }
-
-  function reorderInstruction(
-    sequenceId: string,
-    instructionId: string,
-    direction: -1 | 1,
-  ) {
-    if (isPlaying || activeAction) {
-      return;
-    }
-    const sequence = sequences.find((candidate) => candidate.id === sequenceId);
-    if (!sequence) {
-      return;
-    }
-    const next = reorderTacticalInstruction(
-      sequence.instructions,
-      instructionId,
-      direction,
-    ) as TacticalInstruction[];
-    if (
-      next.map((instruction) => instruction.id).join(":") ===
-      (sortTacticalInstructions(
-        sequence.instructions,
-      ) as TacticalInstruction[])
-        .map((instruction) => instruction.id)
-        .join(":")
-    ) {
-      setStatusMessage("같은 상대 시각의 지시끼리만 순서를 바꿀 수 있습니다.");
-      return;
-    }
-    setSequences(
-      replaceTacticalSequence(sequences, {
-        ...sequence,
-        instructions: next,
-      }) as TacticalSequence[],
-    );
-    invalidateCompilation("같은 상대 시각의 지시 순서를 변경했습니다.");
-  }
-
-  function moveInstructionToSequence(
-    sourceSequenceId: string,
-    instructionId: string,
-    targetSequenceId: string,
-  ) {
-    if (
-      isPlaying ||
-      activeAction ||
-      sourceSequenceId === targetSequenceId
-    ) {
-      return;
-    }
-    const source = sequences.find(
-      (sequence) => sequence.id === sourceSequenceId,
-    );
-    const target = sequences.find(
-      (sequence) => sequence.id === targetSequenceId,
-    );
-    const instruction = source?.instructions.find(
-      (candidate) => candidate.id === instructionId,
-    );
-    if (!source || !target || !instruction) {
-      return;
-    }
-    const targetEndAtMs =
-      sequenceEndAtMsById.get(target.id) ?? durationMs;
-    const maximumTargetOffset = Math.max(
-      0,
-      targetEndAtMs - target.startAtMs - SIMULATION_TICK_MS,
-    );
-    if (instruction.atMs > maximumTargetOffset) {
-      setStatusMessage(
-        `${target.name}의 시간 구간이 짧습니다. 상대 시각을 ${seconds(maximumTargetOffset)} 이하로 줄인 뒤 이동하세요.`,
-      );
-      return;
-    }
-    const movedInstruction = {
-      ...instruction,
-      atMs: instruction.atMs,
-      ...(isMovementInstruction(instruction)
-        ? {
-            waypoints: (instruction as MovementInstruction).waypoints.map(
-              (waypoint) => ({ ...waypoint }),
-            ),
-          }
-        : {}),
-    } as TacticalInstruction;
-    let nextSequences = replaceTacticalSequence(sequences, {
-      ...source,
-      instructions: removeTacticalInstruction(
-        source.instructions,
-        instructionId,
-      ) as TacticalInstruction[],
-    }) as TacticalSequence[];
-    nextSequences = replaceTacticalSequence(nextSequences, {
-      ...target,
-      instructions: appendTacticalInstruction(
-        target.instructions,
-        movedInstruction,
-      ) as TacticalInstruction[],
-    }) as TacticalSequence[];
-    setSequences(nextSequences);
-    setSelectedSequenceId(targetSequenceId);
-    invalidateCompilation(`지시를 ${target.name}에 이동했습니다.`);
   }
 
   function createSequence() {
@@ -2511,28 +2402,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       setStatusMessage("현재 마지막 시퀀스에 지시를 하나 이상 추가한 뒤 새 시퀀스를 만드세요.");
       return;
     }
-    const latestOffsetMs = Math.max(
-      0,
-      ...previous.instructions.map((instruction) => instruction.atMs),
-    );
-    const startAtMs = Math.min(
-      durationMs - SIMULATION_TICK_MS,
-      previous.startAtMs +
-        Math.max(1_000, latestOffsetMs + SIMULATION_TICK_MS),
-    );
-    if (
-      startAtMs <=
-      previous.startAtMs + latestOffsetMs
-    ) {
-      setStatusMessage("현재 장면 길이 안에 새 시퀀스를 시작할 시간이 없습니다.");
-      return;
-    }
     const id = `sequence-${nextSequenceIdRef.current++}`;
     const sequence = createWorkspaceSequence(
       id,
       previous.order + 1,
       `시퀀스 ${sortedSequences.length + 1}`,
-      startAtMs,
     );
     setSequences(
       appendTacticalSequence(sequences, sequence) as TacticalSequence[],
@@ -2557,75 +2431,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setStatusMessage(`시퀀스 이름 변경: ${name}`);
   }
 
-  function updateSequenceStartTime(sequenceId: string, value: number) {
-    if (isPlaying || activeAction) {
-      return;
-    }
-    const index = sortedSequences.findIndex(
-      (sequence) => sequence.id === sequenceId,
-    );
-    if (index <= 0) {
-      return;
-    }
-    const sequence = sortedSequences[index];
-    const previous = sortedSequences[index - 1];
-    const previousLatestOffset = Math.max(
-      0,
-      ...previous.instructions.map((instruction) => instruction.atMs),
-    );
-    const currentLatestOffset = Math.max(
-      0,
-      ...sequence.instructions.map((instruction) => instruction.atMs),
-    );
-    const minimum =
-      previous.startAtMs + previousLatestOffset + SIMULATION_TICK_MS;
-    const nextStartAtMs = sortedSequences[index + 1]?.startAtMs ?? durationMs;
-    const maximum = Math.min(
-      durationMs - SIMULATION_TICK_MS,
-      nextStartAtMs - currentLatestOffset - SIMULATION_TICK_MS,
-    );
-    if (maximum < minimum) {
-      setStatusMessage("인접 시퀀스 사이에 시작 시각을 변경할 공간이 없습니다.");
-      return;
-    }
-    const normalized = Math.min(
-      maximum,
-      Math.max(
-        minimum,
-        Math.round(value / SIMULATION_TICK_MS) * SIMULATION_TICK_MS,
-      ),
-    );
-    const maxOffset = Math.max(
-      0,
-      durationMs - normalized - SIMULATION_TICK_MS,
-    );
-    const nextInstructions = sequence.instructions.map((instruction) => ({
-      ...instruction,
-      atMs: Math.min(instruction.atMs, maxOffset),
-      ...(isMovementInstruction(instruction)
-        ? {
-            waypoints: (instruction as MovementInstruction).waypoints.map(
-              (waypoint) => ({ ...waypoint }),
-            ),
-          }
-        : {}),
-    })) as TacticalInstruction[];
-    const nextSequences = replaceTacticalSequence(sequences, {
-      ...sequence,
-      startAtMs: normalized,
-      instructions: nextInstructions,
-    }) as TacticalSequence[];
-    setSequences(nextSequences);
-    setManualActionOffset((current) =>
-      normalizeManualActionOffsetForTimeline(
-        current,
-        nextSequences,
-        durationMs,
-      ),
-    );
-    invalidateCompilation(`${sequence.name}의 시작 시각을 변경했습니다.`);
-  }
-
   function moveSequence(sequenceId: string, direction: -1 | 1) {
     if (isPlaying || activeAction) {
       return;
@@ -2644,11 +2449,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           durationMs,
         ),
       );
-      invalidateCompilation("시퀀스 순서와 시작 시각을 함께 변경했습니다.");
+      invalidateCompilation("시퀀스 실행 순서를 변경했습니다.");
     } catch {
-      setStatusMessage(
-        "인접 시간 구간이 이 시퀀스의 액션 상대 시각보다 짧아 순서를 바꿀 수 없습니다.",
-      );
+      setStatusMessage("시퀀스 순서를 변경하지 못했습니다.");
     }
   }
 
@@ -3375,15 +3178,13 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 const nextDuration = normalizedDuration(Number(event.target.value));
                 const hasOutOfRangeSequence = sortedSequences.some(
                   (sequence) =>
-                    sequence.startAtMs >= nextDuration ||
                     sequence.instructions.some(
-                      (instruction) =>
-                        sequence.startAtMs + instruction.atMs >= nextDuration,
+                      (instruction) => instruction.atMs >= nextDuration,
                     ),
                 );
                 if (hasOutOfRangeSequence) {
                   setStatusMessage(
-                    "기존 시퀀스 또는 액션을 포함할 수 없는 길이입니다. 먼저 시작 시각이나 상대 시각을 줄이세요.",
+                    "기존 액션의 상대 시각을 포함할 수 없는 길이입니다. 먼저 액션 시각을 줄이세요.",
                   );
                   return;
                 }
@@ -3480,11 +3281,10 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             </div>
           </div>
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
-            선수와 공을 드래그하면 시작 위치가 바뀝니다. 공을 선수 위에 놓으면
-            해당 선수가 소유하고, 빈 공간에 놓으면 루즈볼로 시작합니다. 우리 팀
-            선수를 선택하고 오른쪽 지시 패널에서 액션을 고른 뒤 경기장 위치나
-            대상 선수를 지정하세요. 액션은 선택한 시퀀스 안에 저장되고 상대 팀은
-            자동으로 반응합니다.
+            편집 중에는 선택한 시퀀스가 실제로 시작하는 선수·공 위치를 보여줍니다.
+            이동선이나 패스선을 직접 선택해 편집하고, 우리 팀 선수를 선택해 새
+            액션을 추가하세요. 다음 시퀀스는 앞 시퀀스가 끝난 바로 그 상태에서
+            시작하며 상대 팀은 자동으로 반응합니다.
           </p>
           <div
             ref={pitchRef}
@@ -3517,9 +3317,8 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               className="sim-route-layer"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
-              aria-hidden="true"
-              focusable="false"
-              style={{ pointerEvents: "none" }}
+              role="group"
+              aria-label={`${selectedSequence?.name ?? "선택 시퀀스"} 전술 경로`}
             >
               {automaticPaths.map((path) =>
                 path.points.length > 1 ? (
@@ -3533,29 +3332,96 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     points={polylinePoints(path.points)}
                     fill="none"
                     vectorEffect="non-scaling-stroke"
+                    style={{ pointerEvents: "none" }}
                   />
                 ) : null,
               )}
               {plannedMovementPaths.map(
                 ({ instruction, points, cancellationReason }) => (
-                  <polyline
+                  <g
                     key={`manual:${instruction.id}`}
-                    className={`sim-route sim-route-manual sim-route-home sim-route-${instruction.type}${cancellationReason ? " sim-route-cancelled" : ""}`}
-                    points={polylinePoints(points)}
-                    fill="none"
-                    vectorEffect="non-scaling-stroke"
-                  />
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${participantsById.get(instruction.playerId)?.player.name ?? "선수"} ${instruction.type === "carry" ? "볼 운반" : "이동"} 경로 편집`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      beginAction(
+                        instruction.type,
+                        instruction,
+                        false,
+                        effectiveSelectedSequenceId,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        beginAction(
+                          instruction.type,
+                          instruction,
+                          true,
+                          effectiveSelectedSequenceId,
+                        );
+                      }
+                    }}
+                  >
+                    <polyline
+                      className={`sim-route sim-route-manual sim-route-home sim-route-${instruction.type}${cancellationReason ? " sim-route-cancelled" : ""}`}
+                      points={polylinePoints(points)}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                      style={{ pointerEvents: "none" }}
+                    />
+                    <polyline
+                      className="sim-route-hit"
+                      points={polylinePoints(points)}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
                 ),
               )}
               {plannedPassPaths.map(
                 ({ instruction, points, cancellationReason }) => (
-                  <polyline
+                  <g
                     key={`pass:${instruction.id}`}
-                    className={`sim-route sim-route-pass ${run ? "sim-route-pass-result" : "sim-route-pass-plan"}${cancellationReason ? " sim-route-cancelled" : ""}`}
-                    points={polylinePoints(points)}
-                    fill="none"
-                    vectorEffect="non-scaling-stroke"
-                  />
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${participantsById.get(instruction.playerId)?.player.name ?? "선수"} 패스 대상 편집`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      beginAction(
+                        "pass",
+                        instruction,
+                        false,
+                        effectiveSelectedSequenceId,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        beginAction(
+                          "pass",
+                          instruction,
+                          true,
+                          effectiveSelectedSequenceId,
+                        );
+                      }
+                    }}
+                  >
+                    <polyline
+                      className={`sim-route sim-route-pass ${run ? "sim-route-pass-result" : "sim-route-pass-plan"}${cancellationReason ? " sim-route-cancelled" : ""}`}
+                      points={polylinePoints(points)}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                      style={{ pointerEvents: "none" }}
+                    />
+                    <polyline
+                      className="sim-route-hit"
+                      points={polylinePoints(points)}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
                 ),
               )}
             </svg>
@@ -3841,7 +3707,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               >
                 {sortedSequences.map((sequence, index) => (
                   <option key={sequence.id} value={sequence.id}>
-                    {index + 1}. {sequence.name} · {seconds(sequence.startAtMs)}
+                    {index + 1}. {sequence.name}
                   </option>
                 ))}
               </select>
@@ -3896,14 +3762,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       id="sim-action-time"
                       type="number"
                       min={0}
-                      max={
-                        (((selectedSequence &&
-                          sequenceEndAtMsById.get(selectedSequence.id)) ??
-                          durationMs) -
-                          (selectedSequence?.startAtMs ?? 0) -
-                          SIMULATION_TICK_MS) /
-                        1_000
-                      }
+                      max={(durationMs - SIMULATION_TICK_MS) / 1_000}
                       step={SIMULATION_TICK_MS / 1_000}
                       value={(activeAction?.atMs ?? nextActionAtMs) / 1_000}
                       disabled={isPlaying}
@@ -3911,10 +3770,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       onChange={(event) => {
                         const nextAtMs = normalizedSequenceOffset(
                           Number(event.target.value) * 1_000,
-                          selectedSequence?.startAtMs ?? 0,
-                          (selectedSequence &&
-                            sequenceEndAtMsById.get(selectedSequence.id)) ??
-                            durationMs,
+                          durationMs,
                         );
                         if (activeAction) {
                           setActiveAction((current) =>
@@ -3971,6 +3827,20 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                             </button>
                           </>
                         ) : null}
+                        {activeAction.instructionId ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeInstruction(
+                                activeAction.sequenceId,
+                                activeAction.instructionId!,
+                                true,
+                              )
+                            }
+                          >
+                            이 지시 삭제
+                          </button>
+                        ) : null}
                         <button type="button" onClick={cancelActiveAction}>
                           액션 취소
                         </button>
@@ -4007,16 +3877,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             <header>
               <div>
                 <h4 id="sim-sequence-editor-title">전술 시퀀스</h4>
-                <p>시작 시각별 액션 그룹 · 액션 시각은 그룹 기준</p>
+                <p>위에서 아래 순서대로 실행 · 완료 상태를 다음 시작점으로 연결</p>
               </div>
               <button
                 type="button"
                 disabled={
                   isPlaying ||
                   Boolean(activeAction) ||
-                  !sortedSequences.at(-1)?.instructions.length ||
-                  (sortedSequences.at(-1)?.startAtMs ?? durationMs) >=
-                    durationMs - SIMULATION_TICK_MS
+                  !sortedSequences.at(-1)?.instructions.length
                 }
                 onClick={createSequence}
                 aria-describedby="sim-sequence-add-help"
@@ -4031,7 +3899,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               (instruction) => instruction.type === "pass",
             ) ? (
               <p className="sim-pass-path-note">
-                파란 점선은 시퀀스 시작과 상대 시각을 합산한 패스 경로입니다.
+                선택한 시퀀스의 이동·패스 선은 경기장에서 직접 선택해 편집합니다.
               </p>
             ) : null}
             <ol className="sim-sequence-list" aria-label="전술 시퀀스 목록">
@@ -4042,22 +3910,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     ? "현재"
                     : status === "executed"
                       ? "실행됨"
+                      : status === "timed-out"
+                        ? "시간 초과"
                       : "대기";
                 const sequenceInstructions = sortTacticalInstructions(
                   sequence.instructions,
                 ) as TacticalInstruction[];
-                const previousSequence = sortedSequences[sequenceIndex - 1];
-                const nextSequence = sortedSequences[sequenceIndex + 1];
-                const previousLatestOffset = Math.max(
-                  0,
-                  ...(previousSequence?.instructions.map(
-                    (instruction) => instruction.atMs,
-                  ) ?? []),
-                );
-                const currentLatestOffset = Math.max(
-                  0,
-                  ...sequenceInstructions.map((instruction) => instruction.atMs),
-                );
                 return (
                   <li
                     key={sequence.id}
@@ -4091,7 +3949,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       >
                         <span aria-hidden="true">{sequenceIndex + 1}</span>
                         <strong>{sequence.name}</strong>
-                        <small>{seconds(sequence.startAtMs)} 시작</small>
+                        <small>{sequenceInstructions.length}개 액션</small>
                       </button>
                       <span className={`sim-sequence-status is-${status}`}>
                         {statusLabel}
@@ -4123,40 +3981,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                               event.currentTarget.blur();
                             }
                           }}
-                        />
-                      </label>
-                      <label htmlFor={`sim-sequence-time-${sequence.id}`}>
-                        <span>시작 시각 (초)</span>
-                        <input
-                          id={`sim-sequence-time-${sequence.id}`}
-                          type="number"
-                          min={
-                            sequenceIndex === 0
-                              ? 0
-                              : ((previousSequence?.startAtMs ?? 0) +
-                                  previousLatestOffset +
-                                  SIMULATION_TICK_MS) /
-                                1_000
-                          }
-                          max={
-                            ((nextSequence?.startAtMs ?? durationMs) -
-                              currentLatestOffset -
-                              SIMULATION_TICK_MS) /
-                            1_000
-                          }
-                          step={SIMULATION_TICK_MS / 1_000}
-                          value={sequence.startAtMs / 1_000}
-                          disabled={
-                            sequenceIndex === 0 ||
-                            isPlaying ||
-                            Boolean(activeAction)
-                          }
-                          onChange={(event) =>
-                            updateSequenceStartTime(
-                              sequence.id,
-                              Number(event.target.value) * 1_000,
-                            )
-                          }
                         />
                       </label>
                     </div>
@@ -4201,215 +4025,11 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                       </button>
                     </div>
 
-                    <ol
-                      className="sim-sequence-instructions"
-                      aria-label={`${sequence.name} 선수 지시`}
-                    >
-                      {sequenceInstructions.map((instruction, index) => {
-                        const actor = participantsById.get(instruction.playerId);
-                        const target =
-                          instruction.type === "pass"
-                            ? participantsById.get(instruction.targetPlayerId)
-                            : null;
-                        const actionLabel =
-                          instruction.type === "move"
-                            ? "이동"
-                            : instruction.type === "carry"
-                              ? "볼 운반"
-                              : "패스";
-                        const sameOffsetInstructions =
-                          sequenceInstructions.filter(
-                            (candidate) =>
-                              candidate.atMs === instruction.atMs,
-                          );
-                        const sameOffsetIndex = sameOffsetInstructions.findIndex(
-                          (candidate) => candidate.id === instruction.id,
-                        );
-                        const cancellationReason =
-                          instructionCancellationById.get(instruction.id);
-                        return (
-                          <li
-                            key={instruction.id}
-                            className={
-                              cancellationReason
-                                ? "sim-instruction-cancelled"
-                                : undefined
-                            }
-                          >
-                            <div
-                              className="sim-instruction-order"
-                              aria-hidden="true"
-                            >
-                              {index + 1}
-                            </div>
-                            <div className="sim-instruction-summary">
-                              <strong>{actionLabel}</strong>
-                              <span>
-                                {actor?.player.name ?? instruction.playerId}
-                                {instruction.type === "pass"
-                                  ? ` → ${target?.player.name ?? instruction.targetPlayerId}`
-                                  : ` · ${instruction.waypoints.length}개 지점`}
-                              </span>
-                              <span>
-                                전체 {seconds(sequence.startAtMs + instruction.atMs)}
-                              </span>
-                              {cancellationReason ? (
-                                <span className="sim-instruction-warning">
-                                  미리보기 취소 ·{" "}
-                                  {instructionCancellationLabel(
-                                    cancellationReason,
-                                  )}
-                                </span>
-                              ) : null}
-                            </div>
-                            <label
-                              htmlFor={`sim-instruction-time-${instruction.id}`}
-                            >
-                              <span className="sr-only">
-                                {sequence.name} {index + 1}번 {actionLabel} 상대
-                                시각 (초)
-                              </span>
-                              <input
-                                id={`sim-instruction-time-${instruction.id}`}
-                                type="number"
-                                min={0}
-                                max={
-                                  ((sequenceEndAtMsById.get(sequence.id) ??
-                                    durationMs) -
-                                    sequence.startAtMs -
-                                    SIMULATION_TICK_MS) /
-                                  1_000
-                                }
-                                step={SIMULATION_TICK_MS / 1_000}
-                                value={instruction.atMs / 1_000}
-                                disabled={isPlaying || Boolean(activeAction)}
-                                aria-label={`${sequence.name} ${index + 1}번 ${actionLabel} 상대 시각 (초)`}
-                                onChange={(event) =>
-                                  updateInstructionTime(
-                                    sequence.id,
-                                    instruction.id,
-                                    Number(event.target.value) * 1_000,
-                                  )
-                                }
-                              />
-                            </label>
-                            <label className="sim-instruction-move">
-                              <span>시퀀스 이동</span>
-                              <select
-                                value={sequence.id}
-                                disabled={
-                                  isPlaying ||
-                                  Boolean(activeAction) ||
-                                  sortedSequences.length <= 1
-                                }
-                                aria-label={`${actionLabel} 지시를 이동할 시퀀스`}
-                                onChange={(event) =>
-                                  moveInstructionToSequence(
-                                    sequence.id,
-                                    instruction.id,
-                                    event.target.value,
-                                  )
-                                }
-                              >
-                                {sortedSequences.map(
-                                  (targetSequence, targetIndex) => (
-                                    <option
-                                      key={targetSequence.id}
-                                      value={targetSequence.id}
-                                    >
-                                      {targetIndex + 1}. {targetSequence.name}
-                                    </option>
-                                  ),
-                                )}
-                              </select>
-                            </label>
-                            <div className="sim-instruction-actions">
-                              <button
-                                type="button"
-                                disabled={
-                                  isPlaying ||
-                                  Boolean(activeAction) ||
-                                  sameOffsetIndex <= 0
-                                }
-                                onClick={() =>
-                                  reorderInstruction(
-                                    sequence.id,
-                                    instruction.id,
-                                    -1,
-                                  )
-                                }
-                                aria-label={`${actionLabel} 지시를 같은 상대 시각 안에서 앞으로 이동`}
-                              >
-                                순서 앞으로
-                              </button>
-                              <button
-                                type="button"
-                                disabled={
-                                  isPlaying ||
-                                  Boolean(activeAction) ||
-                                  sameOffsetIndex < 0 ||
-                                  sameOffsetIndex >=
-                                    sameOffsetInstructions.length - 1
-                                }
-                                onClick={() =>
-                                  reorderInstruction(
-                                    sequence.id,
-                                    instruction.id,
-                                    1,
-                                  )
-                                }
-                                aria-label={`${actionLabel} 지시를 같은 상대 시각 안에서 뒤로 이동`}
-                              >
-                                순서 뒤로
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isPlaying || Boolean(activeAction)}
-                                onClick={(event) =>
-                                  beginAction(
-                                    instruction.type,
-                                    instruction,
-                                    event.detail === 0,
-                                    sequence.id,
-                                  )
-                                }
-                                onKeyDown={(event) =>
-                                  handleBeginActionKeyDown(
-                                    event,
-                                    instruction.type,
-                                    instruction,
-                                    sequence.id,
-                                  )
-                                }
-                              >
-                                {instruction.type === "pass"
-                                  ? "대상 변경"
-                                  : "경로 편집"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isPlaying || Boolean(activeAction)}
-                                onClick={() =>
-                                  removeInstruction(
-                                    sequence.id,
-                                    instruction.id,
-                                  )
-                                }
-                                aria-label={`${actionLabel} 지시 삭제`}
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                    {sequenceInstructions.length === 0 ? (
-                      <p className="sim-instruction-empty">
-                        이 시퀀스는 비어 있습니다. 위에서 시퀀스를 선택하고 선수
-                        지시를 추가하세요.
-                      </p>
-                    ) : null}
+                    <p className="sim-sequence-summary">
+                      {sequenceInstructions.length === 0
+                        ? "빈 시퀀스 · 선택한 뒤 경기장에서 액션을 추가하세요."
+                        : `${sequenceInstructions.length}개 액션 · 선택하면 경기장에 해당 경로만 표시됩니다.`}
+                    </p>
                   </li>
                 );
               })}

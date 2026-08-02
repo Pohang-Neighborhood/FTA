@@ -3114,6 +3114,20 @@ button:disabled {
   stroke-dasharray: 2 4;
 }
 
+.sim-route-hit {
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: stroke;
+  stroke: transparent;
+  stroke-width: 12;
+}
+
+.sim-route-layer g:focus-visible .sim-route {
+  filter: drop-shadow(0 0 5px rgba(216, 255, 79, 0.9));
+  opacity: 1;
+  stroke-width: 4;
+}
+
 .sim-waypoint {
   align-items: center;
   background: #07100d;
@@ -3870,10 +3884,15 @@ button:disabled {
   color: #a9ebff;
 }
 
+.sim-sequence-status.is-timed-out {
+  border-color: rgba(255, 128, 100, 0.55);
+  color: #ffb09e;
+}
+
 .sim-sequence-fields {
   display: grid;
   gap: 7px;
-  grid-template-columns: minmax(0, 1fr) 92px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sim-sequence-fields label,
@@ -3892,6 +3911,13 @@ button:disabled {
 .sim-sequence-actions button {
   min-width: 0;
   padding: 0 7px;
+}
+
+.sim-sequence-summary {
+  color: var(--muted-strong);
+  font-size: 7px;
+  line-height: 1.5;
+  margin: 0;
 }
 
 .sim-sequence-instructions {
