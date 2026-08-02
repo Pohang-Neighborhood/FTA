@@ -20,6 +20,16 @@ import {
   toPitchPositionWithOffset,
 } from "../lib/tactics-core.js";
 import {
+  appendTacticalInstruction,
+  isMovementInstruction,
+  nextInstructionTimeMs,
+  normalizeInstructionTimeMs,
+  reorderTacticalInstruction,
+  removeTacticalInstruction,
+  replaceTacticalInstruction,
+  sortTacticalInstructions,
+} from "../lib/instruction-model.js";
+import {
   positionForFormationRole,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
@@ -62,7 +72,6 @@ type Placement = PitchPoint & {
 
 type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
-type ManualRouteMap = Record<string, PitchPoint[]>;
 
 function positionGroupClass(role: string) {
   return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
@@ -91,17 +100,62 @@ type BallDragState = {
   dropTargets: Record<string, PitchPoint>;
 };
 
+type MovementInstruction = {
+  id: string;
+  order: number;
+  type: "move" | "carry";
+  playerId: ParticipantId;
+  atMs: number;
+  waypoints: PitchPoint[];
+};
+
 type PassInstruction = {
   id: string;
-  fromPlayerId: ParticipantId;
-  toPlayerId: ParticipantId;
+  order: number;
+  type: "pass";
+  playerId: ParticipantId;
   atMs: number;
+  targetPlayerId: ParticipantId;
+};
+
+type TacticalInstruction = MovementInstruction | PassInstruction;
+
+type MovementActionDraft = {
+  type: "move" | "carry";
+  playerId: ParticipantId;
+  atMs: number;
+  waypoints: PitchPoint[];
+  instructionId?: string;
+  order?: number;
+};
+
+type PassActionDraft = {
+  type: "pass";
+  playerId: ParticipantId;
+  atMs: number;
+  instructionId?: string;
+  order?: number;
+};
+
+type ActionDraft = MovementActionDraft | PassActionDraft;
+
+type ManualActionTime = {
+  playerId: ParticipantId;
+  atMs: number;
+};
+
+type PlannedMovementPath = {
+  instruction: MovementInstruction;
+  points: PitchPoint[];
+  cancellationReason?: string;
 };
 
 type SimulationEvent = {
   type: string;
   atMs: number;
   passId?: string;
+  instructionId?: string;
+  instructionType?: string;
   playerId?: string;
   fromPlayerId?: string;
   toPlayerId?: string;
@@ -129,6 +183,7 @@ type SimulationFrame = {
   ball: {
     kind: "controlled" | "inFlight" | "loose";
     position: PitchPoint;
+    target?: PitchPoint;
     ownerId?: string;
     passId?: string;
     fromPlayerId?: string;
@@ -251,17 +306,6 @@ function normalizedDuration(value: number) {
   );
 }
 
-function normalizedPassTime(value: number, durationMs: number) {
-  const finiteValue = Number.isFinite(value) ? value : 1_000;
-  return Math.min(
-    durationMs - SIMULATION_TICK_MS,
-    Math.max(
-      0,
-      Math.round(finiteValue / SIMULATION_TICK_MS) * SIMULATION_TICK_MS,
-    ),
-  );
-}
-
 function mirroredSlots(formation: Formation) {
   return mirrorFormationSlots(formation.slots) as FormationSlot[];
 }
@@ -352,11 +396,90 @@ function eventDescription(
       return `${seconds(event.atMs)} 패스 미완료`;
     case "pass_cancelled":
       return `${seconds(event.atMs)} 패스 취소 · ${event.reason ?? "실행 조건 불충족"}`;
+    case "instruction_cancelled": {
+      const action = event.instructionType === "carry" ? "볼 운반" : "이동";
+      const reason =
+        event.reason === "player_busy"
+          ? "이전 이동이 끝나지 않음"
+          : event.reason === "no_possession"
+            ? "공 소유권 없음"
+            : event.reason ?? "실행 조건 불충족";
+      return `${seconds(event.atMs)} ${playerName(event.playerId)} ${action} 취소 · ${reason}`;
+    }
     case "ball_recovered":
       return `${seconds(event.atMs)} ${playerName(event.playerId)} 루즈볼 회수`;
     default:
       return `${seconds(event.atMs)} ${event.type}`;
   }
+}
+
+function instructionCancellationLabel(reason: string) {
+  if (reason === "player_busy") {
+    return "이전 이동이 끝나지 않음";
+  }
+  if (reason === "no_possession") {
+    return "공 소유권 없음";
+  }
+  return reason;
+}
+
+type WorkspaceRunSource = {
+  durationMs: number;
+  participants: LineupParticipant[];
+  placements: PlacementMap;
+  initialBallPosition: PitchPoint | null;
+  initialBallOwnerId: ParticipantId | "";
+  instructions: TacticalInstruction[];
+  lineupError: string | null;
+};
+
+function compileWorkspaceRun({
+  durationMs,
+  participants,
+  placements,
+  initialBallPosition,
+  initialBallOwnerId,
+  instructions,
+  lineupError,
+}: WorkspaceRunSource) {
+  if (
+    participants.length !== 22 ||
+    (!initialBallPosition && !initialBallOwnerId) ||
+    lineupError
+  ) {
+    throw new Error(
+      lineupError ?? "양 팀 선발 11명과 초기 공 위치가 필요합니다.",
+    );
+  }
+  const scenario = {
+    durationMs,
+    players: participants.map((participant) => ({
+      id: participant.participantId,
+      team: participant.teamSide,
+      role: participant.role,
+      position: {
+        x: placements[participant.participantId].x,
+        y: placements[participant.participantId].y,
+      },
+      abilities: { ...participant.player.abilities },
+    })),
+    ...(initialBallPosition
+      ? { initialBallPosition: { ...initialBallPosition } }
+      : { initialBallOwnerId }),
+    instructions: (
+      sortTacticalInstructions(instructions) as TacticalInstruction[]
+    ).map((instruction) =>
+      isMovementInstruction(instruction)
+        ? {
+            ...instruction,
+            waypoints: (instruction as MovementInstruction).waypoints.map(
+              (waypoint) => ({ ...waypoint }),
+            ),
+          }
+        : { ...instruction },
+    ),
+  };
+  return compileSimulation(scenario) as SimulationRun;
 }
 
 export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
@@ -382,31 +505,35 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     useState<PlacementOverrideMap>({});
   const [draggingParticipantId, setDraggingParticipantId] =
     useState<ParticipantId | null>(null);
-  const [manualRoutes, setManualRoutes] = useState<ManualRouteMap>({});
+  const [instructions, setInstructions] = useState<TacticalInstruction[]>([]);
+  const [activeAction, setActiveAction] = useState<ActionDraft | null>(null);
+  const [manualActionTime, setManualActionTime] =
+    useState<ManualActionTime | null>(null);
+  const [targetCursor, setTargetCursor] = useState<PitchPoint>({ x: 50, y: 50 });
   const [ballOwnerId, setBallOwnerId] = useState<ParticipantId | "">("");
   const [initialBallPosition, setInitialBallPosition] =
     useState<PitchPoint | null>(null);
   const [isDraggingBall, setIsDraggingBall] = useState(false);
-  const [passFromId, setPassFromId] = useState<ParticipantId | "">("");
-  const [passTargetId, setPassTargetId] = useState<ParticipantId | "">("");
-  const [passAtMs, setPassAtMs] = useState(1_000);
-  const [passes, setPasses] = useState<PassInstruction[]>([]);
   const [durationMs, setDurationMs] = useState(DEFAULT_DURATION_MS);
   const [run, setRun] = useState<SimulationRun | null>(null);
   const [cursorMs, setCursorMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [compileError, setCompileError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState(
-    "우리 팀 선수를 선택하고 경기장을 눌러 이동 경로를 지정하세요.",
+    "우리 팀 선수를 선택하고 지시 패널에서 이동·볼 운반·패스를 지정하세요.",
   );
 
   const pitchRef = useRef<HTMLDivElement>(null);
+  const targetCursorRef = useRef<HTMLButtonElement>(null);
+  const shouldFocusTargetCursorRef = useRef(false);
+  const shouldFocusPassTargetRef = useRef(false);
   const dragRef = useRef<DragState | null>(null);
   const ballDragRef = useRef<BallDragState | null>(null);
   const suppressClickRef = useRef<ParticipantId | null>(null);
   const suppressBallClickRef = useRef(false);
   const animationFrameRef = useRef<number | null>(null);
   const cursorRef = useRef(0);
+  const nextInstructionOrderRef = useRef(1);
 
   const catalog = useMemo(
     () => teams.flatMap((team) => team.players),
@@ -470,31 +597,260 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     homeParticipants.find((participant) => participant.role.includes("ST")) ??
     homeParticipants.find((participant) => participant.role !== "GK") ??
     homeParticipants[0];
-  const defaultTarget =
-    homeParticipants.find(
-      (participant) =>
-        participant.participantId !== defaultOwner?.participantId &&
-        participant.role !== "GK",
-    ) ?? homeParticipants[0];
   const effectiveSelectedParticipantId =
     selectedParticipantId && participantsById.has(selectedParticipantId)
       ? selectedParticipantId
-      : defaultOwner?.participantId ?? null;
+      : null;
   const effectiveBallOwnerId =
     ballOwnerId && participantsById.has(ballOwnerId)
       ? ballOwnerId
       : defaultOwner?.participantId ?? "";
-  const effectivePassFromId =
-    passFromId && participantsById.has(passFromId)
-      ? passFromId
-      : defaultOwner?.participantId ?? "";
-  const effectivePassTargetId =
-    passTargetId && participantsById.has(passTargetId)
-      ? passTargetId
-      : defaultTarget?.participantId ?? "";
   const selectedParticipant = effectiveSelectedParticipantId
     ? participantsById.get(effectiveSelectedParticipantId)
     : undefined;
+
+  const sortedInstructions = useMemo(
+    () => sortTacticalInstructions(instructions) as TacticalInstruction[],
+    [instructions],
+  );
+  const confirmedMovementInstructions = useMemo(
+    () =>
+      sortedInstructions.filter(
+        (instruction): instruction is MovementInstruction =>
+          isMovementInstruction(instruction),
+      ),
+    [sortedInstructions],
+  );
+  const instructedPlayerIds = useMemo(
+    () =>
+      new Set(
+        confirmedMovementInstructions.map(
+          (instruction) => instruction.playerId,
+        ),
+      ),
+    [confirmedMovementInstructions],
+  );
+  const displayInstructions = useMemo(() => {
+    if (
+      !activeAction ||
+      activeAction.type === "pass" ||
+      activeAction.waypoints.length === 0
+    ) {
+      return sortedInstructions;
+    }
+    const draftInstruction: MovementInstruction = {
+      id: activeAction.instructionId ?? "instruction-draft",
+      order: activeAction.order ?? Number.MAX_SAFE_INTEGER,
+      type: activeAction.type,
+      playerId: activeAction.playerId,
+      atMs: activeAction.atMs,
+      waypoints: activeAction.waypoints.map((waypoint) => ({ ...waypoint })),
+    };
+    const next = activeAction.instructionId
+      ? sortedInstructions.map((instruction) =>
+          instruction.id === activeAction.instructionId
+            ? draftInstruction
+            : instruction,
+        )
+      : [...sortedInstructions, draftInstruction];
+    return sortTacticalInstructions(next) as TacticalInstruction[];
+  }, [activeAction, sortedInstructions]);
+  const instructionPreviewRun = useMemo(() => {
+    if (draggingParticipantId || isDraggingBall) {
+      return null;
+    }
+    try {
+      return compileWorkspaceRun({
+        durationMs,
+        participants,
+        placements,
+        initialBallPosition,
+        initialBallOwnerId: effectiveBallOwnerId,
+        instructions: displayInstructions,
+        lineupError: lineupState.error,
+      });
+    } catch {
+      return null;
+    }
+  }, [
+    displayInstructions,
+    draggingParticipantId,
+    durationMs,
+    effectiveBallOwnerId,
+    initialBallPosition,
+    isDraggingBall,
+    lineupState.error,
+    participants,
+    placements,
+  ]);
+  const routeRun = activeAction
+    ? instructionPreviewRun
+    : run ?? instructionPreviewRun;
+  const instructionCancellationById = useMemo(() => {
+    const cancellations = new Map<string, string>();
+    const events =
+      routeRun?.frames.flatMap((candidate) => candidate.events) ?? [];
+    for (const event of events) {
+      const instructionId =
+        event.type === "instruction_cancelled"
+          ? event.instructionId
+          : event.type === "pass_cancelled"
+            ? event.passId
+            : undefined;
+      if (instructionId) {
+        cancellations.set(instructionId, event.reason ?? "실행 조건 불충족");
+      }
+    }
+    return cancellations;
+  }, [routeRun]);
+  const plannedMovementPaths = useMemo(() => {
+    const lastPositionByPlayer = new Map<string, PitchPoint>(
+      Object.entries(placements).map(([participantId, placement]) => [
+        participantId,
+        { x: placement.x, y: placement.y },
+      ]),
+    );
+    return displayInstructions.flatMap((instruction) => {
+      if (!isMovementInstruction(instruction)) {
+        return [];
+      }
+      const movement = instruction as MovementInstruction;
+      const instructionFrame = routeRun
+        ? (sampleSimulation(routeRun, movement.atMs) as SimulationFrame)
+        : null;
+      const start =
+        instructionFrame?.players[movement.playerId]?.position ??
+        lastPositionByPlayer.get(movement.playerId);
+      if (!start || movement.waypoints.length === 0) {
+        return [];
+      }
+      const points = [
+        start,
+        ...movement.waypoints.map((point) => ({ ...point })),
+      ];
+      const cancellationReason = instructionCancellationById.get(movement.id);
+      if (!routeRun && !cancellationReason) {
+        lastPositionByPlayer.set(movement.playerId, {
+          ...movement.waypoints.at(-1)!,
+        });
+      }
+      return [
+        {
+          instruction: movement,
+          points,
+          ...(cancellationReason ? { cancellationReason } : {}),
+        } satisfies PlannedMovementPath,
+      ];
+    });
+  }, [
+    displayInstructions,
+    instructionCancellationById,
+    placements,
+    routeRun,
+  ]);
+  const plannedPassPaths = useMemo(
+    () =>
+      sortedInstructions.flatMap((instruction) => {
+        if (instruction.type !== "pass") {
+          return [];
+        }
+        const instructionFrame = routeRun
+          ? (sampleSimulation(routeRun, instruction.atMs) as SimulationFrame)
+          : null;
+        const from =
+          instructionFrame?.players[instruction.playerId]?.position ??
+          placements[instruction.playerId];
+        const to =
+          (instructionFrame?.ball.kind === "inFlight" &&
+          instructionFrame.ball.passId === instruction.id
+            ? instructionFrame.ball.target
+            : undefined) ??
+          instructionFrame?.players[instruction.targetPlayerId]?.position ??
+          placements[instruction.targetPlayerId];
+        return from && to
+          ? [
+              {
+                instruction,
+                points: [from, to] as PitchPoint[],
+                cancellationReason: instructionCancellationById.get(
+                  instruction.id,
+                ),
+              },
+            ]
+          : [];
+      }),
+    [instructionCancellationById, placements, routeRun, sortedInstructions],
+  );
+
+  const suggestedActionAtMs = useMemo<number | null | undefined>(() => {
+    if (
+      !effectiveSelectedParticipantId ||
+      selectedParticipant?.teamSide !== "home" ||
+      activeAction ||
+      draggingParticipantId ||
+      isDraggingBall
+    ) {
+      return undefined;
+    }
+    const baseAtMs = nextInstructionTimeMs(
+      sortedInstructions,
+      effectiveSelectedParticipantId,
+      durationMs,
+    );
+    if (baseAtMs === null) {
+      return null;
+    }
+    const latestMovement = confirmedMovementInstructions
+      .filter(
+        (instruction) =>
+          instruction.playerId === effectiveSelectedParticipantId,
+      )
+      .at(-1);
+    if (!latestMovement || !instructionPreviewRun) {
+      return baseAtMs;
+    }
+    if (
+      instructionCancellationById.get(latestMovement.id) === "no_possession"
+    ) {
+      return baseAtMs;
+    }
+    const arrivalAtMs = (
+      summarizeSimulation(instructionPreviewRun) as SimulationSummary
+    ).players[effectiveSelectedParticipantId]?.arrivedAtMs;
+    if (arrivalAtMs === null || arrivalAtMs === undefined) {
+      return null;
+    }
+    const candidate = Math.max(
+      baseAtMs,
+      arrivalAtMs + SIMULATION_TICK_MS,
+    );
+    return candidate < durationMs
+      ? normalizeInstructionTimeMs(candidate, durationMs)
+      : null;
+  }, [
+    activeAction,
+    confirmedMovementInstructions,
+    draggingParticipantId,
+    durationMs,
+    effectiveSelectedParticipantId,
+    instructionCancellationById,
+    instructionPreviewRun,
+    isDraggingBall,
+    selectedParticipant?.teamSide,
+    sortedInstructions,
+  ]);
+  const selectedManualActionTime =
+    manualActionTime?.playerId === effectiveSelectedParticipantId
+      ? manualActionTime
+      : null;
+  const nextActionAtMs =
+    selectedManualActionTime?.atMs ??
+    (typeof suggestedActionAtMs === "number" ? suggestedActionAtMs : 0);
+  const actionTimeRequiresInput =
+    !activeAction &&
+    selectedParticipant?.teamSide === "home" &&
+    suggestedActionAtMs === null &&
+    !selectedManualActionTime;
 
   const frame = useMemo(
     () =>
@@ -517,8 +873,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     return participants
       .filter(
-        (participant) =>
-          (manualRoutes[participant.participantId]?.length ?? 0) === 0,
+        (participant) => !instructedPlayerIds.has(participant.participantId),
       )
       .map((participant) => ({
         participantId: participant.participantId,
@@ -530,7 +885,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           ),
         ),
       }));
-  }, [manualRoutes, participants, placements, run]);
+  }, [instructedPlayerIds, participants, placements, run]);
 
   const visibleEvents = useMemo(
     () =>
@@ -545,6 +900,33 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   useEffect(() => {
     cursorRef.current = cursorMs;
   }, [cursorMs]);
+
+  useEffect(() => {
+    if (!activeAction) {
+      return;
+    }
+    if (
+      shouldFocusTargetCursorRef.current &&
+      activeAction.type !== "pass"
+    ) {
+      shouldFocusTargetCursorRef.current = false;
+      targetCursorRef.current?.focus();
+      return;
+    }
+    if (shouldFocusPassTargetRef.current && activeAction.type === "pass") {
+      shouldFocusPassTargetRef.current = false;
+      const targetId = homeParticipants.find(
+        (participant) =>
+          participant.participantId !== activeAction.playerId,
+      )?.participantId;
+      const targetToken = Array.from(
+        pitchRef.current?.querySelectorAll<HTMLButtonElement>(
+          "[data-sim-token]",
+        ) ?? [],
+      ).find((candidate) => candidate.dataset.simToken === targetId);
+      targetToken?.focus();
+    }
+  }, [activeAction, homeParticipants]);
 
   useEffect(() => {
     if (!isPlaying || !run) {
@@ -621,13 +1003,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       setAwayFormationId(value);
     }
     setSelectedParticipantId(null);
+    setActiveAction(null);
+    setInstructions([]);
+    setManualActionTime(null);
     setBallOwnerId("");
     setInitialBallPosition(null);
-    setPassFromId("");
-    setPassTargetId("");
     setPlacementOverrides({});
-    setManualRoutes({});
-    setPasses([]);
     invalidateCompilation("라인업 변경을 반영했습니다. 기존 지시는 초기화됩니다.");
   }
 
@@ -696,6 +1077,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   ) {
     if (
       isPlaying ||
+      activeAction ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
       return;
@@ -802,9 +1184,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         const nextOwner = participantsById.get(nextOwnerId);
         setBallOwnerId(nextOwnerId);
         setInitialBallPosition(null);
-        if (nextOwner?.teamSide === "home") {
-          setPassFromId(nextOwnerId);
-        }
         invalidateCompilation(
           `${nextOwner?.player.name ?? "선수"}를 초기 공 소유자로 지정했습니다.`,
         );
@@ -828,7 +1207,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       ArrowLeft: { x: -1, y: 0 },
       ArrowRight: { x: 1, y: 0 },
     }[event.key];
-    if (!direction || isPlaying) {
+    if (!direction || isPlaying || activeAction) {
       return;
     }
 
@@ -878,8 +1257,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   ) {
     if (
       isPlaying ||
+      activeAction ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
+      if (activeAction) {
+        event.stopPropagation();
+      }
       return;
     }
 
@@ -993,6 +1376,15 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     event: KeyboardEvent<HTMLButtonElement>,
     participantId: ParticipantId,
   ) {
+    if (
+      activeAction?.type === "pass" &&
+      (event.key === "Enter" || event.key === " ")
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      commitPassTarget(participantId);
+      return;
+    }
     const direction = {
       ArrowUp: { x: 0, y: -1 },
       ArrowDown: { x: 0, y: 1 },
@@ -1000,7 +1392,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       ArrowRight: { x: 1, y: 0 },
     }[event.key];
 
-    if (!direction || isPlaying) {
+    if (!direction || isPlaying || activeAction) {
       return;
     }
 
@@ -1030,14 +1422,19 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       setStatusMessage("재생 중에는 경로를 편집할 수 없습니다.");
       return;
     }
-    if (
-      !effectiveSelectedParticipantId ||
-      !effectiveSelectedParticipantId.startsWith("home:")
-    ) {
-      setStatusMessage("우리 팀 선수를 먼저 선택하세요.");
+    if (!activeAction || activeAction.type === "pass") {
+      setStatusMessage(
+        activeAction?.type === "pass"
+          ? "패스를 받을 우리 팀 선수 토큰을 선택하세요."
+          : "우리 팀 선수를 선택하고 이동 또는 볼 운반 액션을 먼저 선택하세요.",
+      );
       return;
     }
-    if ((event.target as HTMLElement).closest("[data-sim-token]")) {
+    if (
+      (event.target as HTMLElement).closest(
+        "[data-sim-token], [data-sim-ball], [data-sim-target-cursor]",
+      )
+    ) {
       return;
     }
     const position = toPitchPosition(
@@ -1045,28 +1442,337 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       event.clientY,
       event.currentTarget.getBoundingClientRect(),
     ) as PitchPoint;
-    setManualRoutes((current) => ({
-      ...current,
-      [effectiveSelectedParticipantId]: [
-        ...(current[effectiveSelectedParticipantId] ?? []),
-        position,
-      ],
-    }));
-    invalidateCompilation(
-      `${selectedParticipant?.player.name ?? "선수"} 경로에 지점을 추가했습니다.`,
+    appendWaypointToDraft(position);
+  }
+
+  function beginAction(
+    type: TacticalInstruction["type"],
+    instruction?: TacticalInstruction,
+    focusTarget = false,
+  ) {
+    if (isPlaying) {
+      setStatusMessage("재생 중에는 지시를 편집할 수 없습니다.");
+      return;
+    }
+    if (activeAction) {
+      setStatusMessage("현재 액션을 완료하거나 취소한 뒤 다른 지시를 편집하세요.");
+      return;
+    }
+    const playerId = instruction?.playerId ?? effectiveSelectedParticipantId;
+    const participant = playerId ? participantsById.get(playerId) : undefined;
+    if (!playerId || participant?.teamSide !== "home") {
+      setStatusMessage("우리 팀 선수를 먼저 선택하세요.");
+      return;
+    }
+    if (!instruction && actionTimeRequiresInput) {
+      setStatusMessage(
+        "장면 안에서 충돌 없는 자동 시각을 찾지 못했습니다. 실행 시각을 직접 입력한 뒤 액션을 선택하세요.",
+      );
+      return;
+    }
+    const atMs = normalizeInstructionTimeMs(
+      instruction?.atMs ?? nextActionAtMs,
+      durationMs,
     );
+    const movement = instruction && isMovementInstruction(instruction)
+      ? (instruction as MovementInstruction)
+      : null;
+    const plannedFallback = confirmedMovementInstructions
+      .filter(
+        (candidate) =>
+          candidate.playerId === playerId &&
+          candidate.id !== instruction?.id &&
+          candidate.atMs <= atMs,
+      )
+      .at(-1)
+      ?.waypoints.at(-1);
+    const instructionFrame = instructionPreviewRun
+      ? (sampleSimulation(
+          instructionPreviewRun,
+          instruction?.atMs ?? nextActionAtMs,
+        ) as SimulationFrame)
+      : null;
+    const startPoint =
+      movement?.waypoints.at(-1) ??
+      instructionFrame?.players[playerId]?.position ??
+      plannedFallback ??
+      placements[playerId] ??
+      { x: 50, y: 50 };
+    const initialTarget = movement
+      ? { x: startPoint.x, y: startPoint.y }
+      : clampToVisiblePitch(startPoint.x, startPoint.y - 6);
+    setSelectedParticipantId(playerId);
+    setManualActionTime(null);
+    setTargetCursor(initialTarget);
+    shouldFocusTargetCursorRef.current =
+      focusTarget && type !== "pass";
+    shouldFocusPassTargetRef.current = focusTarget && type === "pass";
+    if (type === "pass") {
+      setActiveAction({
+        type,
+        playerId,
+        atMs,
+        instructionId: instruction?.id,
+        order: instruction?.order,
+      });
+      setStatusMessage(
+        `${participant.player.name}의 패스 대상을 우리 팀 선수 토큰에서 선택하세요.`,
+      );
+      return;
+    }
+    setActiveAction({
+      type,
+      playerId,
+      atMs,
+      waypoints: movement?.waypoints.map((waypoint) => ({ ...waypoint })) ?? [],
+      instructionId: instruction?.id,
+      order: instruction?.order,
+    });
+    setStatusMessage(
+      `${participant.player.name}의 ${type === "carry" ? "볼 운반" : "이동"} 지점을 경기장에서 지정하세요.`,
+    );
+  }
+
+  function handleBeginActionKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    type: TacticalInstruction["type"],
+    instruction?: TacticalInstruction,
+  ) {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    beginAction(type, instruction, true);
+  }
+
+  function cancelActiveAction() {
+    if (!activeAction) {
+      return;
+    }
+    setActiveAction(null);
+    setStatusMessage("현재 액션 편집을 취소했습니다. 기존 지시는 유지됩니다.");
+  }
+
+  function appendWaypointToDraft(position: PitchPoint) {
+    if (!activeAction || activeAction.type === "pass") {
+      return;
+    }
+    const nextPoint = clampToVisiblePitch(position.x, position.y);
+    setTargetCursor(nextPoint);
+    setActiveAction((current) =>
+      current && current.type !== "pass"
+        ? {
+            ...current,
+            waypoints: [...current.waypoints, nextPoint],
+          }
+        : current,
+    );
+    setStatusMessage(
+      `${participantsById.get(activeAction.playerId)?.player.name ?? "선수"} 경로에 ${activeAction.waypoints.length + 1}번째 지점을 추가했습니다.`,
+    );
+  }
+
+  function handleTargetCursorKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (!activeAction || activeAction.type === "pass") {
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelActiveAction();
+      return;
+    }
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      completeMovementAction();
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      appendWaypointToDraft(targetCursor);
+      return;
+    }
+    const direction = {
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 },
+    }[event.key];
+    if (!direction) {
+      return;
+    }
+    event.preventDefault();
+    const distance = event.shiftKey ? 5 : 2;
+    setTargetCursor((current) =>
+      clampToVisiblePitch(
+        current.x + direction.x * distance,
+        current.y + direction.y * distance,
+      ),
+    );
+  }
+
+  function completeMovementAction() {
+    if (!activeAction || activeAction.type === "pass") {
+      return;
+    }
+    if (activeAction.waypoints.length === 0) {
+      setStatusMessage("경기장에서 이동 지점을 하나 이상 지정하세요.");
+      return;
+    }
+    const instruction: MovementInstruction = {
+      id:
+        activeAction.instructionId ??
+        `instruction-${nextInstructionOrderRef.current}`,
+      order:
+        activeAction.order ?? nextInstructionOrderRef.current++,
+      type: activeAction.type,
+      playerId: activeAction.playerId,
+      atMs: activeAction.atMs,
+      waypoints: activeAction.waypoints.map((waypoint) => ({ ...waypoint })),
+    };
+    const nextInstructions = activeAction.instructionId
+      ? (replaceTacticalInstruction(
+          instructions,
+          instruction,
+        ) as TacticalInstruction[])
+      : (appendTacticalInstruction(
+          instructions,
+          instruction,
+        ) as TacticalInstruction[]);
+    setInstructions(nextInstructions);
+    setActiveAction(null);
+    invalidateCompilation(
+      `${participantsById.get(instruction.playerId)?.player.name ?? "선수"}의 ${instruction.type === "carry" ? "볼 운반" : "이동"} 지시를 저장했습니다.`,
+    );
+  }
+
+  function removeLastDraftWaypoint() {
+    if (!activeAction || activeAction.type === "pass") {
+      return;
+    }
+    setActiveAction({
+      ...activeAction,
+      waypoints: activeAction.waypoints.slice(0, -1),
+    });
+    setStatusMessage("현재 경로의 마지막 지점을 되돌렸습니다.");
+  }
+
+  function commitPassTarget(targetPlayerId: ParticipantId) {
+    if (!activeAction || activeAction.type !== "pass") {
+      return false;
+    }
+    const target = participantsById.get(targetPlayerId);
+    if (
+      target?.teamSide !== "home" ||
+      targetPlayerId === activeAction.playerId
+    ) {
+      setStatusMessage(
+        target?.teamSide === "away"
+          ? "상대 팀 선수는 패스 대상으로 지정할 수 없습니다. 자동 반응만 수행합니다."
+          : "패스 출발 선수와 다른 우리 팀 선수를 선택하세요.",
+      );
+      return true;
+    }
+    const instruction: PassInstruction = {
+      id:
+        activeAction.instructionId ??
+        `instruction-${nextInstructionOrderRef.current}`,
+      order:
+        activeAction.order ?? nextInstructionOrderRef.current++,
+      type: "pass",
+      playerId: activeAction.playerId,
+      atMs: activeAction.atMs,
+      targetPlayerId,
+    };
+    const nextInstructions = activeAction.instructionId
+      ? (replaceTacticalInstruction(
+          instructions,
+          instruction,
+        ) as TacticalInstruction[])
+      : (appendTacticalInstruction(
+          instructions,
+          instruction,
+        ) as TacticalInstruction[]);
+    setInstructions(nextInstructions);
+    setActiveAction(null);
+    setSelectedParticipantId(instruction.playerId);
+    invalidateCompilation(
+      `${seconds(instruction.atMs)} ${participantsById.get(instruction.playerId)?.player.name ?? "선수"} → ${target.player.name} 패스 지시를 저장했습니다.`,
+    );
+    return true;
+  }
+
+  function updateInstructionTime(instructionId: string, value: number) {
+    if (isPlaying) {
+      return;
+    }
+    const instruction = instructions.find(
+      (candidate) => candidate.id === instructionId,
+    );
+    if (!instruction) {
+      return;
+    }
+    const nextInstruction = {
+      ...instruction,
+      atMs: normalizeInstructionTimeMs(value, durationMs),
+    } as TacticalInstruction;
+    const nextInstructions = replaceTacticalInstruction(
+      instructions,
+      nextInstruction,
+    ) as TacticalInstruction[];
+    setInstructions(nextInstructions);
+    invalidateCompilation("지시 실행 시각을 변경해 순서를 다시 정렬했습니다.");
+  }
+
+  function removeInstruction(instructionId: string) {
+    if (isPlaying) {
+      return;
+    }
+    const nextInstructions = removeTacticalInstruction(
+      instructions,
+      instructionId,
+    ) as TacticalInstruction[];
+    setInstructions(nextInstructions);
+    if (activeAction?.instructionId === instructionId) {
+      setActiveAction(null);
+    }
+    invalidateCompilation("선수 지시를 삭제했습니다.");
+  }
+
+  function reorderInstruction(instructionId: string, direction: -1 | 1) {
+    if (isPlaying) {
+      return;
+    }
+    const next = reorderTacticalInstruction(
+      instructions,
+      instructionId,
+      direction,
+    ) as TacticalInstruction[];
+    if (
+      next.map((instruction) => instruction.id).join(":") ===
+      sortedInstructions.map((instruction) => instruction.id).join(":")
+    ) {
+      setStatusMessage("같은 실행 시각의 지시끼리만 순서를 바꿀 수 있습니다.");
+      return;
+    }
+    setInstructions(next);
+    invalidateCompilation("같은 시각에 실행되는 지시 순서를 변경했습니다.");
   }
 
   function clearSelectedRoute() {
     if (!effectiveSelectedParticipantId || isPlaying) {
       return;
     }
-    setManualRoutes((current) => {
-      const next = { ...current };
-      delete next[effectiveSelectedParticipantId];
-      return next;
-    });
-    invalidateCompilation("선택한 선수의 수동 경로를 삭제했습니다.");
+    const next = instructions.filter(
+      (instruction) =>
+        instruction.playerId !== effectiveSelectedParticipantId ||
+        !isMovementInstruction(instruction),
+    );
+    setInstructions(sortTacticalInstructions(next) as TacticalInstruction[]);
+    setActiveAction(null);
+    invalidateCompilation("선택한 선수의 이동·볼 운반 지시를 삭제했습니다.");
   }
 
   function resetSelectedPlacement() {
@@ -1081,44 +1787,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     invalidateCompilation("선택한 선수의 시작 위치를 포메이션 기본값으로 되돌렸습니다.");
   }
 
-  function addPassInstruction() {
-    if (
-      isPlaying ||
-      !effectivePassFromId ||
-      !effectivePassTargetId ||
-      effectivePassFromId === effectivePassTargetId
-    ) {
-      setStatusMessage("서로 다른 우리 팀 패스 출발·도착 선수를 선택하세요.");
-      return;
-    }
-    const atMs = normalizedPassTime(passAtMs, durationMs);
-    setPasses((current) => [
-      ...current,
-      {
-        id: `pass-${current.length + 1}`,
-        fromPlayerId: effectivePassFromId,
-        toPlayerId: effectivePassTargetId,
-        atMs,
-      },
-    ]);
-    invalidateCompilation(`${seconds(atMs)} 패스 지시를 추가했습니다.`);
-  }
-
-  function removePassInstruction(passId: string) {
-    if (isPlaying) {
-      return;
-    }
-    setPasses((current) =>
-      current
-        .filter((instruction) => instruction.id !== passId)
-        .map((instruction, index) => ({
-          ...instruction,
-          id: `pass-${index + 1}`,
-        })),
-    );
-    invalidateCompilation("패스 지시를 삭제했습니다.");
-  }
-
   function clearAllInstructions() {
     if (isPlaying) {
       return;
@@ -1126,71 +1794,38 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const defaultOwner =
       homeParticipants.find((participant) => participant.role.includes("ST")) ??
       homeParticipants[0];
-    const defaultTarget =
-      homeParticipants.find(
-        (participant) =>
-          participant.participantId !== defaultOwner?.participantId,
-      ) ?? homeParticipants[0];
-    setManualRoutes({});
+    setSelectedParticipantId(null);
+    setActiveAction(null);
+    setInstructions([]);
+    setManualActionTime(null);
     setPlacementOverrides({});
-    setPasses([]);
     setBallOwnerId(defaultOwner?.participantId ?? "");
     setInitialBallPosition(null);
-    setPassFromId(defaultOwner?.participantId ?? "");
-    setPassTargetId(defaultTarget?.participantId ?? "");
-    setPassAtMs(1_000);
     invalidateCompilation("모든 초기 배치·이동·패스 지시를 초기화했습니다.");
   }
 
-  function buildRun() {
-    if (
-      participants.length !== 22 ||
-      (!initialBallPosition && !effectiveBallOwnerId) ||
-      lineupState.error
-    ) {
-      throw new Error(
-        lineupState.error ?? "양 팀 선발 11명과 초기 공 위치가 필요합니다.",
-      );
-    }
-    const scenario = {
+  function buildRun(
+    instructionSource: TacticalInstruction[] = sortedInstructions,
+  ) {
+    return compileWorkspaceRun({
       durationMs,
-      players: participants.map((participant) => ({
-        id: participant.participantId,
-        team: participant.teamSide,
-        role: participant.role,
-        position: {
-          x: placements[participant.participantId].x,
-          y: placements[participant.participantId].y,
-        },
-        abilities: { ...participant.player.abilities },
-      })),
-      ...(initialBallPosition
-        ? { initialBallPosition: { ...initialBallPosition } }
-        : { initialBallOwnerId: effectiveBallOwnerId }),
-      manualRoutes: Object.entries(manualRoutes).flatMap(
-        ([participantId, waypoints]) =>
-          waypoints.length > 0
-            ? [
-                {
-                  playerId: participantId,
-                  startAtMs: 0,
-                  waypoints: waypoints.map((waypoint) => ({ ...waypoint })),
-                },
-              ]
-            : [],
-      ),
-      passes: passes.map((instruction, index) => ({
-        ...instruction,
-        id: `pass-${index + 1}`,
-      })),
-    };
-    return compileSimulation(scenario) as SimulationRun;
+      participants,
+      placements,
+      initialBallPosition,
+      initialBallOwnerId: effectiveBallOwnerId,
+      instructions: instructionSource,
+      lineupError: lineupState.error,
+    });
   }
 
   function play() {
     if (isPlaying) {
       setIsPlaying(false);
       setStatusMessage("시뮬레이션을 일시정지했습니다.");
+      return;
+    }
+    if (activeAction) {
+      setStatusMessage("현재 액션을 완료하거나 취소한 뒤 재생하세요.");
       return;
     }
     try {
@@ -1228,7 +1863,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     ? frame?.metrics.players[effectiveSelectedParticipantId]
     : undefined;
   const selectedRoute = effectiveSelectedParticipantId
-    ? manualRoutes[effectiveSelectedParticipantId] ?? []
+    ? plannedMovementPaths
+        .filter(
+          (path) =>
+            path.instruction.playerId === effectiveSelectedParticipantId,
+        )
+        .flatMap((path) => path.instruction.waypoints)
     : [];
   const selectedEta = effectiveSelectedParticipantId
     ? summary?.players[effectiveSelectedParticipantId]?.arrivedAtMs
@@ -1249,14 +1889,23 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   }
 
   return (
-    <section className="sim-workspace" aria-labelledby="sim-title">
+    <section
+      className="sim-workspace"
+      aria-labelledby="sim-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && activeAction) {
+          event.preventDefault();
+          cancelActiveAction();
+        }
+      }}
+    >
       <header className="sim-header">
         <div>
           <p className="sim-eyebrow">Scenario movement simulator</p>
           <h1 id="sim-title">선수 움직임·패스 시뮬레이션</h1>
           <p>
-            우리 팀의 경로와 패스를 지시하면 나머지 선수들이 능력치에 따라
-            결정론적으로 반응합니다.
+            우리 팀의 이동·볼 운반·패스를 지시하면 상대 팀이 능력치에 따라
+            결정론적으로 압박·커버·차단하며 전술적 빈틈을 드러냅니다.
           </p>
         </div>
         <div className="sim-playback-controls" aria-label="재생 제어">
@@ -1383,14 +2032,26 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               disabled={isPlaying}
               onChange={(event) => {
                 const nextDuration = normalizedDuration(Number(event.target.value));
+                const boundedInstructions = instructions.filter(
+                  (instruction) => instruction.atMs < nextDuration,
+                );
                 setDurationMs(nextDuration);
-                setPasses((current) =>
-                  current.filter((instruction) => instruction.atMs < nextDuration),
+                setInstructions(boundedInstructions);
+                setActiveAction(null);
+                setManualActionTime((current) =>
+                  current
+                    ? {
+                        ...current,
+                        atMs: normalizeInstructionTimeMs(
+                          current.atMs,
+                          nextDuration,
+                        ),
+                      }
+                    : null,
                 );
-                setPassAtMs((current) =>
-                  normalizedPassTime(current, nextDuration),
+                invalidateCompilation(
+                  "장면 길이를 변경했습니다. 범위를 벗어난 지시는 제거했습니다.",
                 );
-                invalidateCompilation("장면 길이를 변경했습니다.");
               }}
             />
             <small>100–15,000ms · 50ms 단위</small>
@@ -1412,9 +2073,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 }
                 setBallOwnerId(nextOwner);
                 setInitialBallPosition(null);
-                if (nextOwner.startsWith("home:")) {
-                  setPassFromId(nextOwner);
-                }
                 invalidateCompilation("초기 공 소유 선수를 변경했습니다.");
               }}
             >
@@ -1444,80 +2102,6 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             </select>
           </label>
 
-          <fieldset className="sim-pass-editor" disabled={isPlaying}>
-            <legend>패스 지시</legend>
-            <label htmlFor="sim-pass-from">출발 선수</label>
-            <select
-              id="sim-pass-from"
-              value={effectivePassFromId}
-              onChange={(event) =>
-                setPassFromId(event.target.value as ParticipantId)
-              }
-            >
-              {homeParticipants.map((participant) => (
-                <option
-                  key={participant.participantId}
-                  value={participant.participantId}
-                >
-                  {participant.player.name} · {participant.role}
-                </option>
-              ))}
-            </select>
-            <label htmlFor="sim-pass-target">도착 선수</label>
-            <select
-              id="sim-pass-target"
-              value={effectivePassTargetId}
-              onChange={(event) =>
-                setPassTargetId(event.target.value as ParticipantId)
-              }
-            >
-              {homeParticipants.map((participant) => (
-                <option
-                  key={participant.participantId}
-                  value={participant.participantId}
-                >
-                  {participant.player.name} · {participant.role}
-                </option>
-              ))}
-            </select>
-            <label htmlFor="sim-pass-time">실행 시각 (ms)</label>
-            <input
-              id="sim-pass-time"
-              type="number"
-              min={0}
-              max={durationMs - SIMULATION_TICK_MS}
-              step={SIMULATION_TICK_MS}
-              value={passAtMs}
-              onChange={(event) =>
-                setPassAtMs(
-                  normalizedPassTime(Number(event.target.value), durationMs),
-                )
-              }
-            />
-            <button type="button" onClick={addPassInstruction}>
-              패스 지시 추가
-            </button>
-          </fieldset>
-
-          <ol className="sim-pass-list" aria-label="등록한 패스 지시">
-            {passes.map((instruction) => (
-              <li key={instruction.id}>
-                <span>
-                  {seconds(instruction.atMs)} ·{" "}
-                  {participantsById.get(instruction.fromPlayerId)?.player.name} →{" "}
-                  {participantsById.get(instruction.toPlayerId)?.player.name}
-                </span>
-                <button
-                  type="button"
-                  disabled={isPlaying}
-                  onClick={() => removePassInstruction(instruction.id)}
-                  aria-label={`${seconds(instruction.atMs)} 패스 지시 삭제`}
-                >
-                  삭제
-                </button>
-              </li>
-            ))}
-          </ol>
         </aside>
 
         <div className="sim-pitch-column">
@@ -1551,12 +2135,21 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
           <p id="sim-pitch-instructions" className="sim-pitch-instructions">
             선수와 공을 드래그하면 시작 위치가 바뀝니다. 공을 선수 위에 놓으면
             해당 선수가 소유하고, 빈 공간에 놓으면 루즈볼로 시작합니다. 우리 팀
-            선수를 선택한 뒤 경기장의 빈 지점을 누르면 이후 수동 경로가 순서대로
-            추가됩니다.
+            선수를 선택하고 오른쪽 지시 패널에서 액션을 고른 뒤 경기장 위치나
+            대상 선수를 지정하세요. 상대 팀은 자동으로 반응합니다.
           </p>
           <div
             ref={pitchRef}
-            className={`sim-pitch${isPlaying ? " sim-pitch-locked" : ""}`}
+            className={[
+              "sim-pitch",
+              isPlaying ? "sim-pitch-locked" : "",
+              activeAction && activeAction.type !== "pass"
+                ? "sim-pitch-targeting-movement"
+                : "",
+              activeAction?.type === "pass" ? "sim-pitch-targeting-pass" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             role="group"
             aria-label={`${homeTeam?.name} 대 ${awayTeam?.name} 시뮬레이션 경기장`}
             aria-describedby="sim-pitch-instructions"
@@ -1595,22 +2188,72 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   />
                 ) : null,
               )}
-              {Object.entries(manualRoutes).map(([participantId, waypoints]) => {
-                const placement = placements[participantId];
-                if (!placement || waypoints.length === 0) {
-                  return null;
-                }
-                return (
+              {plannedMovementPaths.map(
+                ({ instruction, points, cancellationReason }) => (
                   <polyline
-                    key={`manual:${participantId}`}
-                    className="sim-route sim-route-manual sim-route-home"
-                    points={polylinePoints([placement, ...waypoints])}
+                    key={`manual:${instruction.id}`}
+                    className={`sim-route sim-route-manual sim-route-home sim-route-${instruction.type}${cancellationReason ? " sim-route-cancelled" : ""}`}
+                    points={polylinePoints(points)}
                     fill="none"
                     vectorEffect="non-scaling-stroke"
                   />
-                );
-              })}
+                ),
+              )}
+              {plannedPassPaths.map(
+                ({ instruction, points, cancellationReason }) => (
+                  <polyline
+                    key={`pass:${instruction.id}`}
+                    className={`sim-route sim-route-pass ${run ? "sim-route-pass-result" : "sim-route-pass-plan"}${cancellationReason ? " sim-route-cancelled" : ""}`}
+                    points={polylinePoints(points)}
+                    fill="none"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ),
+              )}
             </svg>
+
+            {plannedMovementPaths.flatMap(
+              ({ instruction, cancellationReason }) =>
+                instruction.waypoints.map((waypoint, index) => (
+                  <span
+                    key={`waypoint:${instruction.id}:${index}`}
+                    className={`sim-waypoint sim-waypoint-${instruction.type}${cancellationReason ? " sim-waypoint-cancelled" : ""}`}
+                    style={
+                      {
+                        left: `${waypoint.x}%`,
+                        top: `${waypoint.y}%`,
+                      } as CSSProperties
+                    }
+                    aria-hidden="true"
+                  >
+                    {index + 1}
+                  </span>
+                )),
+            )}
+
+            {activeAction && activeAction.type !== "pass" ? (
+              <button
+                ref={targetCursorRef}
+                type="button"
+                data-sim-target-cursor
+                className="sim-target-cursor"
+                style={
+                  {
+                    left: `${targetCursor.x}%`,
+                    top: `${targetCursor.y}%`,
+                  } as CSSProperties
+                }
+                aria-label={`${activeAction.type === "carry" ? "볼 운반" : "이동"} 목표 커서, 가로 ${targetCursor.x.toFixed(0)}, 세로 ${targetCursor.y.toFixed(0)}. 방향키로 이동, Enter로 지점 추가, Command 또는 Control과 Enter로 경로 완료`}
+                aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowUp Shift+ArrowDown Shift+ArrowLeft Shift+ArrowRight Enter Control+Enter Meta+Enter Escape"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  appendWaypointToDraft(targetCursor);
+                }}
+                onKeyDown={handleTargetCursorKeyDown}
+              >
+                <span aria-hidden="true">+</span>
+              </button>
+            ) : null}
 
             {participants.map((participant) => {
               const placement = placements[participant.participantId];
@@ -1618,8 +2261,13 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               const position = playerFrame?.position ?? placement;
               const isSelected =
                 participant.participantId === effectiveSelectedParticipantId;
-              const isManual =
-                (manualRoutes[participant.participantId]?.length ?? 0) > 0;
+              const isManual = instructedPlayerIds.has(
+                participant.participantId,
+              );
+              const isPassTarget =
+                activeAction?.type === "pass" &&
+                participant.teamSide === "home" &&
+                participant.participantId !== activeAction.playerId;
               const hasCustomPlacement = Boolean(
                 placementOverrides[participant.participantId],
               );
@@ -1644,23 +2292,53 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                     isManual ? "sim-player-manual" : "sim-player-automatic",
                     hasCustomPlacement ? "sim-player-custom-position" : "",
                     isDragging ? "sim-player-dragging" : "",
+                    isPassTarget ? "sim-player-pass-target" : "",
+                    activeAction?.type === "pass" &&
+                    participant.teamSide === "away"
+                      ? "sim-player-invalid-target"
+                      : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   style={tokenStyle}
                   aria-pressed={isSelected}
                   aria-label={
-                    participant.teamSide === "home"
-                      ? `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 선택 후 경기장을 눌러 경로 지정`
-                      : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 자동 반응 선수 정보 보기`
+                    activeAction?.type === "pass"
+                      ? participant.teamSide === "home"
+                        ? participant.participantId === activeAction.playerId
+                          ? `패스 출발 선수 ${participant.player.name}. 다른 우리 팀 선수를 선택하세요`
+                          : `${participant.player.name}에게 패스`
+                        : `상대 팀 ${participant.player.name}. 패스 대상 아님, 자동 반응 선수`
+                      : isPlaying
+                        ? `${participant.teamSide === "home" ? "우리 팀" : "상대 팀"} ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 재생 중 위치 편집 잠금. 선수 정보 보기`
+                        : activeAction
+                          ? `${participant.teamSide === "home" ? "우리 팀" : "상대 팀"} ${participant.player.name}. 현재 ${activeAction.type === "carry" ? "볼 운반" : "이동"} 목표 지정 중. 선수 위치 편집 잠금`
+                          : participant.teamSide === "home"
+                            ? `우리 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 선택 후 지시 패널에서 액션 지정`
+                            : `상대 팀 ${participant.player.name}, ${participant.player.number}번, ${participant.role}. 드래그 또는 방향키로 시작 위치 이동. 자동 반응 선수 정보 보기`
                   }
-                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
+                  aria-keyshortcuts={
+                    activeAction?.type === "pass"
+                      ? "Enter Space"
+                      : !isPlaying && !activeAction
+                        ? "ArrowUp ArrowDown ArrowLeft ArrowRight"
+                        : undefined
+                  }
                   onClick={(event) => {
                     event.stopPropagation();
                     if (
                       suppressClickRef.current === participant.participantId
                     ) {
                       suppressClickRef.current = null;
+                      return;
+                    }
+                    if (commitPassTarget(participant.participantId)) {
+                      return;
+                    }
+                    if (activeAction) {
+                      setStatusMessage(
+                        "현재 이동 지시는 경기장의 빈 지점이나 목표 커서로 지정하세요.",
+                      );
                       return;
                     }
                     setSelectedParticipantId(participant.participantId);
@@ -1706,7 +2384,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               type="button"
               data-sim-ball
               className={`sim-ball-token${isDraggingBall ? " sim-ball-dragging" : ""}`}
-              disabled={isPlaying}
+              disabled={isPlaying || Boolean(activeAction)}
               aria-label={
                 !frame
                   ? initialBallPosition
@@ -1729,6 +2407,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 event.stopPropagation();
                 if (suppressBallClickRef.current) {
                   suppressBallClickRef.current = false;
+                  return;
+                }
+                if (activeAction) {
+                  setStatusMessage(
+                    activeAction.type === "pass"
+                      ? "패스를 받을 우리 팀 선수 토큰을 선택하세요."
+                      : "이동 목표는 빈 경기장이나 목표 커서로 지정하세요.",
+                  );
                   return;
                 }
                 const ownerId =
@@ -1765,6 +2451,327 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
 
         <aside className="sim-inspector" aria-labelledby="sim-inspector-title">
           <h3 id="sim-inspector-title">선수·장면 분석</h3>
+
+          <section
+            className="sim-instruction-editor"
+            aria-labelledby="sim-instruction-editor-title"
+          >
+            <header>
+              <div>
+                <p className="sim-instruction-kicker">Home team only</p>
+                <h4 id="sim-instruction-editor-title">선수 지시</h4>
+              </div>
+              {selectedParticipant ? (
+                <button
+                  type="button"
+                  disabled={isPlaying}
+                  onClick={() => {
+                    setSelectedParticipantId(null);
+                    setActiveAction(null);
+                    setStatusMessage("선수 선택을 해제했습니다.");
+                  }}
+                >
+                  선택 해제
+                </button>
+              ) : null}
+            </header>
+
+            {selectedParticipant ? (
+              selectedParticipant.teamSide === "home" ? (
+                <>
+                  <p className="sim-instruction-actor">
+                    <strong>{selectedParticipant.player.name}</strong>
+                    <span>
+                      {selectedParticipant.role} ·{" "}
+                      {actionTimeRequiresInput
+                        ? "실행 시각 직접 입력 필요"
+                        : `${seconds(nextActionAtMs)} 다음 지시`}
+                    </span>
+                  </p>
+                  <fieldset
+                    className="sim-action-picker"
+                    disabled={isPlaying || Boolean(activeAction)}
+                  >
+                    <legend>적용할 액션</legend>
+                    <div>
+                      {(["move", "carry", "pass"] as const).map((type) => (
+                        <button
+                          type="button"
+                          key={type}
+                          aria-pressed={activeAction?.type === type}
+                          onClick={(event) =>
+                            beginAction(type, undefined, event.detail === 0)
+                          }
+                          onKeyDown={(event) =>
+                            handleBeginActionKeyDown(event, type)
+                          }
+                        >
+                          {type === "move"
+                            ? "이동"
+                            : type === "carry"
+                              ? "볼 운반"
+                              : "패스"}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <label
+                    className="sim-instruction-time"
+                    htmlFor="sim-action-time"
+                  >
+                    <span>실행 시각 (초)</span>
+                    <input
+                      id="sim-action-time"
+                      type="number"
+                      min={0}
+                      max={(durationMs - SIMULATION_TICK_MS) / 1_000}
+                      step={SIMULATION_TICK_MS / 1_000}
+                      value={(activeAction?.atMs ?? nextActionAtMs) / 1_000}
+                      disabled={isPlaying}
+                      aria-describedby="sim-action-time-help"
+                      onChange={(event) => {
+                        const nextAtMs = normalizeInstructionTimeMs(
+                          Number(event.target.value) * 1_000,
+                          durationMs,
+                        );
+                        if (activeAction) {
+                          setActiveAction((current) =>
+                            current ? { ...current, atMs: nextAtMs } : current,
+                          );
+                        } else if (effectiveSelectedParticipantId) {
+                          setManualActionTime({
+                            playerId: effectiveSelectedParticipantId,
+                            atMs: nextAtMs,
+                          });
+                        }
+                      }}
+                    />
+                  </label>
+                  <small id="sim-action-time-help" className="sim-form-help">
+                    {actionTimeRequiresInput
+                      ? "장면 안에 충돌 없는 자동 시각이 없습니다. 원하는 시각을 직접 입력하면 액션을 계속할 수 있습니다."
+                      : "선수별 첫 지시는 0초, 다음 지시는 기존 액션과 이동 도착 이후의 안전한 시각을 제안합니다. 0.05초 단위로 수정할 수 있습니다."}
+                  </small>
+
+                  {activeAction ? (
+                    <div
+                      className="sim-action-draft"
+                      data-action={activeAction.type}
+                    >
+                      <strong>
+                        현재 액션 ·{" "}
+                        {activeAction.type === "move"
+                          ? "이동"
+                          : activeAction.type === "carry"
+                            ? "볼 운반"
+                            : "패스"}
+                      </strong>
+                      <p>
+                        {activeAction.type === "pass"
+                          ? "Tab으로 우리 팀 선수에 이동한 뒤 Enter를 눌러 패스 대상을 지정하세요."
+                          : `경기장 클릭 또는 목표 커서로 지점을 추가하세요. 현재 ${activeAction.waypoints.length}개 지점. 키보드는 Command 또는 Control+Enter로 완료합니다.`}
+                      </p>
+                      <div>
+                        {activeAction.type !== "pass" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={completeMovementAction}
+                            >
+                              경로 완료
+                            </button>
+                            <button
+                              type="button"
+                              disabled={activeAction.waypoints.length === 0}
+                              onClick={removeLastDraftWaypoint}
+                            >
+                              마지막 지점 취소
+                            </button>
+                          </>
+                        ) : null}
+                        <button type="button" onClick={cancelActiveAction}>
+                          액션 취소
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="sim-action-idle">
+                      액션을 선택하면 경기장과 대상 선수 토큰이 입력 단계에 맞게
+                      강조됩니다.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="sim-opponent-notice">
+                  <strong>{selectedParticipant.player.name}</strong>
+                  <p>
+                    상대 팀 선수는 직접 지시하지 않습니다. 우리 팀 지시에 맞춰
+                    압박·커버·패스 차단 위치를 자동으로 만듭니다.
+                  </p>
+                </div>
+              )
+            ) : (
+              <p className="sim-action-empty">
+                경기장에서 우리 팀 선수를 선택하면 이동·볼 운반·패스 액션이
+                표시됩니다.
+              </p>
+            )}
+          </section>
+
+          <section
+            className="sim-instruction-queue"
+            aria-labelledby="sim-instruction-queue-title"
+          >
+            <header>
+              <div>
+                <h4 id="sim-instruction-queue-title">장면 지시</h4>
+                <p>실행 시각순 · 같은 시각은 지정 순서</p>
+              </div>
+              <span>{sortedInstructions.length}개</span>
+            </header>
+            {sortedInstructions.some(
+              (instruction) => instruction.type === "pass",
+            ) ? (
+              <p className="sim-pass-path-note">
+                파란 점선은 결정론적 미리보기에서 계산한 실제 실행 시각의 패스
+                출발·대상 위치를 표시합니다.
+              </p>
+            ) : null}
+            <ol aria-label="등록한 선수 지시">
+              {sortedInstructions.map((instruction, index) => {
+                const actor = participantsById.get(instruction.playerId);
+                const target =
+                  instruction.type === "pass"
+                    ? participantsById.get(instruction.targetPlayerId)
+                    : null;
+                const actionLabel =
+                  instruction.type === "move"
+                    ? "이동"
+                    : instruction.type === "carry"
+                      ? "볼 운반"
+                      : "패스";
+                const sameTickInstructions = sortedInstructions.filter(
+                  (candidate) => candidate.atMs === instruction.atMs,
+                );
+                const sameTickIndex = sameTickInstructions.findIndex(
+                  (candidate) => candidate.id === instruction.id,
+                );
+                const cancellationReason = instructionCancellationById.get(
+                  instruction.id,
+                );
+                return (
+                  <li
+                    key={instruction.id}
+                    className={
+                      cancellationReason
+                        ? "sim-instruction-cancelled"
+                        : undefined
+                    }
+                  >
+                    <div className="sim-instruction-order" aria-hidden="true">
+                      {index + 1}
+                    </div>
+                    <div className="sim-instruction-summary">
+                      <strong>{actionLabel}</strong>
+                      <span>
+                        {actor?.player.name ?? instruction.playerId}
+                        {instruction.type === "pass"
+                          ? ` → ${target?.player.name ?? instruction.targetPlayerId}`
+                          : ` · ${instruction.waypoints.length}개 지점`}
+                      </span>
+                      {cancellationReason ? (
+                        <span className="sim-instruction-warning">
+                          미리보기 취소 ·{" "}
+                          {instructionCancellationLabel(cancellationReason)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <label htmlFor={`sim-instruction-time-${instruction.id}`}>
+                      <span className="sr-only">
+                        {index + 1}번 {actionLabel} 실행 시각 (초)
+                      </span>
+                      <input
+                        id={`sim-instruction-time-${instruction.id}`}
+                        type="number"
+                        min={0}
+                        max={(durationMs - SIMULATION_TICK_MS) / 1_000}
+                        step={SIMULATION_TICK_MS / 1_000}
+                        value={instruction.atMs / 1_000}
+                        disabled={isPlaying || Boolean(activeAction)}
+                        aria-label={`${index + 1}번 ${actionLabel} 실행 시각 (초)`}
+                        onChange={(event) =>
+                          updateInstructionTime(
+                            instruction.id,
+                            Number(event.target.value) * 1_000,
+                          )
+                        }
+                      />
+                    </label>
+                    <div className="sim-instruction-actions">
+                      <button
+                        type="button"
+                        disabled={
+                          isPlaying || Boolean(activeAction) || sameTickIndex <= 0
+                        }
+                        onClick={() => reorderInstruction(instruction.id, -1)}
+                        aria-label={`${index + 1}번 ${actionLabel} 지시를 같은 시각 안에서 앞으로 이동`}
+                      >
+                        순서 앞으로
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          isPlaying ||
+                          Boolean(activeAction) ||
+                          sameTickIndex < 0 ||
+                          sameTickIndex >= sameTickInstructions.length - 1
+                        }
+                        onClick={() => reorderInstruction(instruction.id, 1)}
+                        aria-label={`${index + 1}번 ${actionLabel} 지시를 같은 시각 안에서 뒤로 이동`}
+                      >
+                        순서 뒤로
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPlaying || Boolean(activeAction)}
+                        onClick={(event) =>
+                          beginAction(
+                            instruction.type,
+                            instruction,
+                            event.detail === 0,
+                          )
+                        }
+                        onKeyDown={(event) =>
+                          handleBeginActionKeyDown(
+                            event,
+                            instruction.type,
+                            instruction,
+                          )
+                        }
+                      >
+                        {instruction.type === "pass" ? "대상 변경" : "경로 편집"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPlaying || Boolean(activeAction)}
+                        onClick={() => removeInstruction(instruction.id)}
+                        aria-label={`${index + 1}번 ${actionLabel} 지시 삭제`}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            {sortedInstructions.length === 0 ? (
+              <p className="sim-instruction-empty">
+                등록한 지시가 없습니다. 우리 팀 선수를 선택해 시작하세요.
+              </p>
+            ) : null}
+          </section>
+
           {selectedParticipant ? (
             <section className="sim-player-card">
               <header>
@@ -1921,7 +2928,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
 
           <section className="sim-event-log" aria-labelledby="sim-event-title">
             <div>
-              <h4 id="sim-event-title">패스 이벤트</h4>
+              <h4 id="sim-event-title">시뮬레이션 이벤트</h4>
               {summary ? (
                 <span>
                   시도 {summary.passes.attempted} · 성공{" "}
@@ -1936,13 +2943,13 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
             {visibleEvents.length > 0 ? (
               <ol>
                 {visibleEvents.map((event, index) => (
-                  <li key={`${event.type}:${event.atMs}:${event.passId ?? event.playerId ?? index}`}>
+                    <li key={`${event.type}:${event.atMs}:${event.passId ?? event.instructionId ?? event.playerId ?? index}`}>
                     {eventDescription(event, participantsById)}
                   </li>
                 ))}
               </ol>
             ) : (
-              <p>재생된 패스 이벤트가 없습니다.</p>
+              <p>재생된 시뮬레이션 이벤트가 없습니다.</p>
             )}
           </section>
         </aside>

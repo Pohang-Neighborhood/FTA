@@ -44,7 +44,10 @@ test("server-renders the actual-player scenario simulator", async () => {
     /aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"/i,
   );
   assert.match(html, /초기 공 위치·소유/i);
-  assert.match(html, /패스 지시/i);
+  assert.match(html, /id="sim-instruction-editor-title">선수 지시</i);
+  assert.match(html, /이동·볼 운반·패스 액션/i);
+  assert.match(html, /<ol[^>]*aria-label="등록한 선수 지시"/i);
+  assert.match(html, /실행 시각순 · 같은 시각은 지정 순서/i);
   assert.match(html, /장면 길이/i);
   assert.match(
     html,
@@ -86,13 +89,14 @@ test("server-renders the actual-player scenario simulator", async () => {
   assert.match(html, /<button[^>]*data-sim-ball/i);
   assert.match(
     html,
-    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 선택 후 경기장을 눌러 경로 지정"/i,
+    /aria-label="우리 팀 Jo Hyeon-woo, 21번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 선택 후 지시 패널에서 액션 지정"/i,
   );
   assert.match(
     html,
     /aria-label="상대 팀 Alisson, 1번, GK\. 드래그 또는 방향키로 시작 위치 이동\. 자동 반응 선수 정보 보기"/i,
   );
   assert.match(html, /선수와 공을 드래그하면 시작 위치가 바뀝니다/i);
+  assert.doesNotMatch(html, /id="sim-pass-(?:from|target|time)"/i);
 
   assert.doesNotMatch(
     html,
@@ -104,6 +108,12 @@ test("server-renders the actual-player scenario simulator", async () => {
     "utf8",
   );
   assert.match(stylesheet, /\.sim-player-name\s*\{[^}]*pointer-events:\s*none;/s);
+  assert.match(stylesheet, /\.sim-target-cursor\s*\{/s);
+  assert.match(stylesheet, /\.sim-player-pass-target\s+\.sim-player-disc\s*\{/s);
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 1080px\)[\s\S]*grid-template-areas:\s*"setup"\s*"pitch"\s*"inspector";/,
+  );
   assert.doesNotMatch(
     stylesheet,
     /\.sim-player-name\s*\{\s*display:\s*none;/s,
