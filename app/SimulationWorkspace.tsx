@@ -328,6 +328,25 @@ type SimulationFrame = {
       }
     >;
   };
+  tactics: Record<
+    TeamSide,
+    {
+      phase:
+        | "loose-ball"
+        | "build-up"
+        | "progression"
+        | "final-third"
+        | "defensive-transition"
+        | "organized-defense";
+      inPossession: boolean;
+      progress: number | null;
+      defensiveLineY: number;
+      defensiveWidth: number;
+      pressureCount: number;
+      restDefenseCount: number;
+      offsideTrapActive: boolean;
+    }
+  >;
   events: SimulationEvent[];
 };
 
@@ -506,6 +525,21 @@ const automaticBehaviorLabels: Record<string, string> = {
   "ball-carrier-shoot": "슈팅 준비",
   "goalkeeper-support": "후방 빌드업 지원",
   "goalkeeper-reaction": "골문 대응",
+  "rest-defense": "후방 균형",
+  "defensive-line": "수비라인 유지",
+  "offside-line": "오프사이드 라인",
+};
+
+const tacticalPhaseLabels: Record<
+  SimulationFrame["tactics"][TeamSide]["phase"],
+  string
+> = {
+  "loose-ball": "루즈볼 경합",
+  "build-up": "후방 빌드업",
+  "progression": "전진 전개",
+  "final-third": "파이널 서드",
+  "defensive-transition": "수비 전환",
+  "organized-defense": "조직 수비",
 };
 
 function preferredTeamId(
@@ -4494,6 +4528,18 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 <i aria-hidden="true" /> {awayTeam?.name} 공격 ↓
               </span>
             </div>
+            {frame ? (
+              <div className="sim-phase-legend" aria-label="현재 팀 전술 국면">
+                <span>
+                  {homeTeam?.name}: {tacticalPhaseLabels[frame.tactics.home.phase]}
+                  {frame.tactics.home.offsideTrapActive ? " · 오프사이드 라인" : ""}
+                </span>
+                <span>
+                  {awayTeam?.name}: {tacticalPhaseLabels[frame.tactics.away.phase]}
+                  {frame.tactics.away.offsideTrapActive ? " · 오프사이드 라인" : ""}
+                </span>
+              </div>
+            ) : null}
             <div
               className="sim-position-legend"
               aria-label="화살표 색상: 공격수 빨강, 미드필더 초록, 수비수 파랑, 골키퍼 노랑"

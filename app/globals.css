@@ -3051,6 +3051,23 @@ button:disabled {
   width: 11px;
 }
 
+.sim-phase-legend {
+  align-items: center;
+  color: var(--muted-strong);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 9px;
+  gap: 6px 12px;
+  justify-content: center;
+}
+
+.sim-phase-legend span {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
 .sim-legend-home {
   color: var(--lime);
 }

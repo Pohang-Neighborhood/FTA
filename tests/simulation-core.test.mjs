@@ -904,6 +904,95 @@ test("moves unassigned home support and assigns away pressure, cover, block, and
   );
 });
 
+test("exposes deterministic team phases and changes transition into organized defense", () => {
+  const run = compileSimulation(
+    createScenario({ durationMs: 1_250, manualRoutes: [] }),
+  );
+
+  assert.equal(run.frames[0].tactics.home.phase, "final-third");
+  assert.equal(run.frames[0].tactics.away.phase, "defensive-transition");
+  assert.equal(
+    run.frames.find((frame) => frame.elapsedMs === 1_000).tactics.away.phase,
+    "organized-defense",
+  );
+});
+
+test("keeps the remaining back line on one collective target after pressure and cover", () => {
+  const run = compileSimulation(
+    createScenario({ durationMs: 1_500, manualRoutes: [] }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 1_250);
+  const linePlayers = Object.values(frame.players).filter(
+    (player) =>
+      player.team === "away" &&
+      (player.behavior === "defensive-line" ||
+        player.behavior === "offside-line"),
+  );
+
+  assert.ok(linePlayers.length >= 2);
+  const lineTargets = linePlayers.map((player) => player.target.y);
+  assert.ok(Math.max(...lineTargets) - Math.min(...lineTargets) < 0.01);
+});
+
+test("moves the whole back line together when the offside condition is stable", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:lcm": { position: { x: 50, y: 60 } },
+    },
+  });
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 1_500,
+      players,
+      initialBallOwnerId: "home:lcm",
+      manualRoutes: [
+        {
+          playerId: "home:lcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 60 }],
+        },
+      ],
+    }),
+  );
+  const frame = run.frames.at(-1);
+  const backLineIds = ["away:lb", "away:lcb", "away:rcb", "away:rb"];
+
+  assert.equal(frame.tactics.away.offsideTrapActive, true);
+  assert.ok(
+    backLineIds.every(
+      (playerId) => frame.players[playerId].behavior === "offside-line",
+    ),
+  );
+});
+
+test("reserves center backs for rest defense while the team attacks", () => {
+  const run = compileSimulation(
+    createScenario({ durationMs: 500, manualRoutes: [] }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 250);
+
+  assert.equal(frame.players["home:lcb"].behavior, "rest-defense");
+  assert.equal(frame.players["home:rcb"].behavior, "rest-defense");
+});
+
+test("holds pressure ownership through the configured hysteresis window", () => {
+  const run = compileSimulation(createScenario({ durationMs: 1_250 }));
+  const pressureAt = (elapsedMs) =>
+    Object.values(
+      run.frames.find((frame) => frame.elapsedMs === elapsedMs).players,
+    )
+      .filter(
+        (player) =>
+          player.team === "away" && player.behavior === "pressure",
+      )
+      .map((player) => player.id)
+      .sort();
+
+  assert.ok(pressureAt(500).length > 0);
+  assert.deepEqual(pressureAt(500), pressureAt(750));
+  assert.deepEqual(pressureAt(500), pressureAt(1_000));
+});
+
 test("turns fullback overlap and underlap presets into distinct bounded lanes", () => {
   const compileFullback = (presetId) =>
     compileSimulation(
