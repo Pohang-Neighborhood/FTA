@@ -101,6 +101,69 @@ function createInstructionScenario(instructions, overrides = {}) {
   });
 }
 
+function createSequenceScenario(sequences, overrides = {}) {
+  return createScenario({
+    ...overrides,
+    manualRoutes: undefined,
+    passes: undefined,
+    sequences,
+  });
+}
+
+function createTwoSequencePlan(passOverrides = {}) {
+  return [
+    {
+      id: "sequence-build-up",
+      order: 1,
+      name: "전개 시작",
+      startAtMs: 0,
+      instructions: [
+        {
+          id: "pass-a-b",
+          order: 0,
+          type: "pass",
+          playerId: "home:st",
+          targetPlayerId: "home:lcm",
+          atMs: 0,
+          ...passOverrides,
+        },
+        {
+          id: "move-d",
+          order: 1,
+          type: "move",
+          playerId: "home:lw",
+          atMs: 0,
+          waypoints: [{ x: 25, y: 20 }],
+        },
+      ],
+    },
+    {
+      id: "sequence-runs",
+      order: 2,
+      name: "침투",
+      startAtMs: 800,
+      instructions: [
+        {
+          id: "move-c",
+          order: 0,
+          type: "move",
+          playerId: "home:rcm",
+          atMs: 0,
+          waypoints: [{ x: 56, y: 36 }],
+        },
+        {
+          id: "move-e",
+          order: 1,
+          type: "move",
+          playerId: "home:rw",
+          atMs: 0,
+          waypoints: [{ x: 90, y: 20 }],
+        },
+      ],
+    },
+  ];
+}
+
 function allEvents(run) {
   return run.frames.flatMap((frame) => frame.events);
 }
@@ -372,6 +435,320 @@ test("sorts canonical instructions independently of their input array order", ()
       (event) => event.type === "instruction_cancelled",
     ),
     false,
+  );
+});
+
+test("materializes simultaneous sequence instructions at their fixed phase starts", () => {
+  const run = compileSimulation(
+    createSequenceScenario(createTwoSequencePlan(), {
+      durationMs: 2_000,
+      players: createPlayers({
+        moveAwayFromPassLane: true,
+        homeOverrides: {
+          "home:st": { position: { x: 10, y: 62 } },
+          "home:lcm": { position: { x: 10, y: 42 } },
+        },
+      }),
+    }),
+  );
+  const initial = run.frames[0];
+  const afterFirstTick = run.frames.find((frame) => frame.elapsedMs === 50);
+  const secondStart = run.frames.find((frame) => frame.elapsedMs === 800);
+  const afterSecondStart = run.frames.find((frame) => frame.elapsedMs === 850);
+  const passStarted = allEvents(run).find(
+    (event) => event.type === "pass_started",
+  );
+
+  assert.equal(passStarted.passId, "pass-a-b");
+  assert.equal(passStarted.atMs, 0);
+  assert.notDeepEqual(
+    afterFirstTick.players["home:lw"].position,
+    initial.players["home:lw"].position,
+  );
+  for (const playerId of ["home:rcm", "home:rw"]) {
+    assert.deepEqual(
+      secondStart.players[playerId].position,
+      initial.players[playerId].position,
+    );
+    assert.notDeepEqual(
+      afterSecondStart.players[playerId].position,
+      secondStart.players[playerId].position,
+    );
+  }
+});
+
+test("starts later sequences at fixed times even when an earlier pass fails", () => {
+  const successful = compileSimulation(
+    createSequenceScenario(createTwoSequencePlan(), {
+      durationMs: 2_000,
+      players: createPlayers({
+        moveAwayFromPassLane: true,
+        homeOverrides: {
+          "home:st": { position: { x: 10, y: 62 } },
+          "home:lcm": { position: { x: 10, y: 42 } },
+        },
+      }),
+    }),
+  );
+  const failed = compileSimulation(
+    createSequenceScenario(
+      createTwoSequencePlan({
+        playerId: "home:lcm",
+        targetPlayerId: "home:rcm",
+      }),
+      { durationMs: 2_000 },
+    ),
+  );
+
+  assert.ok(
+    allEvents(successful).some((event) => event.type === "pass_received"),
+  );
+  assert.ok(
+    allEvents(failed).some(
+      (event) =>
+        event.type === "pass_cancelled" && event.passId === "pass-a-b",
+    ),
+  );
+  for (const run of [successful, failed]) {
+    const secondStart = run.frames.find((frame) => frame.elapsedMs === 800);
+    const afterSecondStart = run.frames.find(
+      (frame) => frame.elapsedMs === 850,
+    );
+    assert.deepEqual(
+      secondStart.players["home:rcm"].position,
+      run.frames[0].players["home:rcm"].position,
+    );
+    assert.notDeepEqual(
+      afterSecondStart.players["home:rcm"].position,
+      secondStart.players["home:rcm"].position,
+    );
+  }
+});
+
+test("adds sequence start time to each instruction offset", () => {
+  const run = compileSimulation(
+    createSequenceScenario(
+      [
+        {
+          id: "sequence-one",
+          order: 1,
+          name: "첫 구간",
+          startAtMs: 0,
+          instructions: [],
+        },
+        {
+          id: "sequence-two",
+          order: 2,
+          name: "두 번째 구간",
+          startAtMs: 500,
+          instructions: [
+            {
+              id: "offset-pass",
+              order: 0,
+              type: "pass",
+              playerId: "home:st",
+              targetPlayerId: "home:lcm",
+              atMs: 200,
+            },
+          ],
+        },
+      ],
+      { durationMs: 1_500 },
+    ),
+  );
+  const passStarted = allEvents(run).find(
+    (event) => event.type === "pass_started",
+  );
+
+  assert.equal(passStarted.atMs, 700);
+});
+
+test("compiles shuffled sequence groups to the same deterministic run", () => {
+  const sequences = createTwoSequencePlan();
+  const shuffled = sequences
+    .toReversed()
+    .map((sequence) => ({
+      ...sequence,
+      instructions: sequence.instructions.toReversed(),
+    }));
+  const scenarioOptions = {
+    durationMs: 2_000,
+    players: createPlayers({ moveAwayFromPassLane: true }),
+  };
+
+  assert.deepEqual(
+    compileSimulation(createSequenceScenario(shuffled, scenarioOptions)),
+    compileSimulation(createSequenceScenario(sequences, scenarioOptions)),
+  );
+});
+
+test("compiles an equivalent single sequence to the existing flat instruction run", () => {
+  const instructions = [
+    {
+      id: "flat-move",
+      order: 0,
+      type: "move",
+      playerId: "home:st",
+      atMs: 0,
+      waypoints: [{ x: 40, y: 36 }],
+    },
+    {
+      id: "flat-pass",
+      order: 1,
+      type: "pass",
+      playerId: "home:st",
+      targetPlayerId: "home:lcm",
+      atMs: 500,
+    },
+  ];
+  const flat = compileSimulation(
+    createInstructionScenario(instructions, { durationMs: 2_000 }),
+  );
+  const grouped = compileSimulation(
+    createSequenceScenario(
+      [
+        {
+          id: "migrated-sequence",
+          order: 1,
+          name: "기본 시퀀스",
+          startAtMs: 0,
+          instructions,
+        },
+      ],
+      { durationMs: 2_000 },
+    ),
+  );
+
+  assert.deepEqual(grouped, flat);
+  assert.equal(
+    allEvents(grouped).some((event) => event.type.startsWith("sequence_")),
+    false,
+  );
+});
+
+test("rejects invalid sequence timing, phase bounds, and duplicate references", () => {
+  const valid = createTwoSequencePlan();
+
+  assert.throws(
+    () =>
+      compileSimulation(
+        createScenario({
+          sequences: valid,
+        }),
+      ),
+    /either sequences or instructions\/legacy/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          { ...valid[0], startAtMs: 50 },
+          valid[1],
+        ]),
+      ),
+    /first sequence must start at 0ms/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          valid[0],
+          { ...valid[1], startAtMs: 825 },
+        ]),
+      ),
+    /non-negative simulation tick/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          valid[0],
+          { ...valid[1], startAtMs: 0 },
+        ]),
+      ),
+    /strictly increasing/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          { ...valid[0], order: 2 },
+          { ...valid[1], order: 1 },
+        ]),
+      ),
+    /order must be 1 after chronological sorting/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          {
+            ...valid[0],
+            instructions: [
+              { ...valid[0].instructions[0], atMs: 25 },
+            ],
+          },
+          valid[1],
+        ]),
+      ),
+    /simulation tick offset/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          {
+            ...valid[0],
+            instructions: valid[0].instructions.map((instruction, index) =>
+              index === 0 ? { ...instruction, atMs: 800 } : instruction,
+            ),
+          },
+          valid[1],
+        ]),
+      ),
+    /must dispatch before/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          valid[0],
+          {
+            ...valid[1],
+            instructions: [
+              { ...valid[1].instructions[0], id: "pass-a-b" },
+            ],
+          },
+        ]),
+      ),
+    /Duplicate instruction id/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario([
+          valid[0],
+          { ...valid[1], id: valid[0].id },
+        ]),
+      ),
+    /Duplicate sequence id/,
+  );
+  assert.throws(
+    () =>
+      compileSimulation(
+        createSequenceScenario(
+          [
+            {
+              ...valid[0],
+              instructions: [
+                { ...valid[0].instructions[0], atMs: 2_000 },
+              ],
+            },
+          ],
+          { durationMs: 2_000 },
+        ),
+      ),
+    /execute inside the simulation/,
   );
 });
 
