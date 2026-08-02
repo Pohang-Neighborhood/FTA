@@ -8,6 +8,11 @@ import {
   sampleSimulation,
   summarizeSimulation,
 } from "../lib/simulation-core.js";
+import {
+  applyPlayerTacticalRolePreset,
+  createDefaultPlayerTacticalRole,
+  customizePlayerTacticalRole,
+} from "../lib/player-tactical-role.js";
 import { PITCH_BOUNDS } from "../lib/tactics-core.js";
 
 const defaultAbilities = {
@@ -896,6 +901,171 @@ test("moves unassigned home support and assigns away pressure, cover, block, and
   assert.notDeepEqual(
     final.players["away:gk"].position,
     initial.players["away:gk"].position,
+  );
+});
+
+test("turns fullback overlap and underlap presets into distinct bounded lanes", () => {
+  const compileFullback = (presetId) =>
+    compileSimulation(
+      createScenario({
+        players: createPlayers({
+          homeOverrides: {
+            "home:lb": {
+              tacticalRole: applyPlayerTacticalRolePreset("LB", presetId),
+            },
+          },
+        }),
+      }),
+    );
+  const overlap = compileFullback("fullback-overlap").frames.find(
+    (frame) => frame.elapsedMs === 250,
+  ).players["home:lb"];
+  const underlap = compileFullback("fullback-underlap").frames.find(
+    (frame) => frame.elapsedMs === 250,
+  ).players["home:lb"];
+
+  assert.equal(overlap.behavior, "overlap");
+  assert.equal(underlap.behavior, "underlap");
+  assert.ok(overlap.target.x < underlap.target.x);
+  assert.ok(overlap.target.y < 73);
+  assert.ok(underlap.target.y < 73);
+});
+
+test("keeps automatic targets inside configured lateral and vertical activity ranges", () => {
+  const constrainedRole = customizePlayerTacticalRole(
+    createDefaultPlayerTacticalRole("RCM"),
+    {
+      preferredZone: "wide",
+      lateralRange: "low",
+      verticalRange: "low",
+    },
+  );
+  const run = compileSimulation(
+    createScenario({
+      players: createPlayers({
+        homeOverrides: {
+          "home:rcm": { tacticalRole: constrainedRole },
+        },
+      }),
+    }),
+  );
+  const target = run.frames.find((frame) => frame.elapsedMs === 250).players[
+    "home:rcm"
+  ].target;
+
+  assert.ok(Math.abs(target.x - 66) <= (5 / 68) * 100 + 1e-6);
+  assert.ok(Math.abs(target.y - 49) <= (7 / 105) * 100 + 1e-6);
+});
+
+test("selects ball-carrier actions from fixed role preferences and pitch context", () => {
+  const compileOwner = (ownerId, tacticalRole) =>
+    compileSimulation(
+      createScenario({
+        durationMs: 500,
+        players: createPlayers({
+          homeOverrides: { [ownerId]: { tacticalRole } },
+        }),
+        initialBallOwnerId: ownerId,
+        manualRoutes: [],
+      }),
+    ).frames.find((frame) => frame.elapsedMs === 250).players[ownerId]
+      .behavior;
+
+  assert.equal(
+    compileOwner(
+      "home:st",
+      applyPlayerTacticalRolePreset("ST", "striker-advanced"),
+    ),
+    "ball-carrier-shoot",
+  );
+  assert.equal(
+    compileOwner(
+      "home:rw",
+      applyPlayerTacticalRolePreset("RW", "wide-touchline"),
+    ),
+    "ball-carrier-cross",
+  );
+  assert.equal(
+    compileOwner(
+      "home:lcm",
+      applyPlayerTacticalRolePreset("LCM", "midfield-playmaker"),
+    ),
+    "ball-carrier-pass",
+  );
+});
+
+test("uses pressing preference in deterministic pressure assignment", () => {
+  const lowPress = customizePlayerTacticalRole(
+    createDefaultPlayerTacticalRole("LB"),
+    { pressing: "low", verticalRange: "high" },
+  );
+  const highPress = customizePlayerTacticalRole(
+    createDefaultPlayerTacticalRole("LCM"),
+    { pressing: "high", verticalRange: "high" },
+  );
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 600,
+      players: createPlayers({
+        homeOverrides: {
+          "home:lb": {
+            position: { x: 50, y: 72 },
+            tacticalRole: lowPress,
+          },
+          "home:lcm": {
+            position: { x: 50, y: 65 },
+            tacticalRole: highPress,
+          },
+        },
+      }),
+      initialBallOwnerId: "away:st",
+      manualRoutes: [],
+    }),
+  );
+  const decision = run.frames.find((frame) => frame.elapsedMs === 300);
+
+  assert.equal(decision.players["home:lcm"].behavior, "pressure");
+  assert.notEqual(decision.players["home:lb"].behavior, "pressure");
+});
+
+test("keeps explicit movement instructions above persistent player roles", () => {
+  const run = compileSimulation(
+    createScenario({
+      players: createPlayers({
+        homeOverrides: {
+          "home:st": {
+            tacticalRole: applyPlayerTacticalRolePreset(
+              "ST",
+              "striker-advanced",
+            ),
+          },
+        },
+      }),
+    }),
+  );
+
+  assert.equal(run.frames[1].players["home:st"].mode, "manual");
+  assert.equal(run.frames[1].players["home:st"].behavior, "manual");
+  assert.ok(
+    run.frames.at(-1).players["home:st"].distanceM > 0,
+  );
+});
+
+test("rejects a tactical role that does not match the player formation role", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:lcb": {
+        tacticalRole: applyPlayerTacticalRolePreset(
+          "LB",
+          "fullback-overlap",
+        ),
+      },
+    },
+  });
+
+  assert.throws(
+    () => compileSimulation(createScenario({ players })),
+    /does not match the formation role group/,
   );
 });
 

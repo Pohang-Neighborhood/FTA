@@ -56,3 +56,26 @@ export type PitchPoint = {
   x: number;
   y: number;
 };
+
+export type TacticalLevel = "low" | "balanced" | "high";
+
+export type PlayerTacticalRole = {
+  presetId: string;
+  roleGroup:
+    | "goalkeeper"
+    | "centerback"
+    | "fullback"
+    | "midfield"
+    | "wide"
+    | "striker";
+  forwardRun: "hold" | "balanced" | "overlap" | "underlap";
+  preferredZone: "balanced" | "wide" | "half-space" | "central";
+  lateralRange: TacticalLevel;
+  verticalRange: TacticalLevel;
+  defensiveDepth: TacticalLevel;
+  crossing: TacticalLevel;
+  shooting: TacticalLevel;
+  passing: TacticalLevel;
+  carrying: TacticalLevel;
+  pressing: TacticalLevel;
+};
