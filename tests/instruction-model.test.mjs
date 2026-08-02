@@ -9,6 +9,7 @@ import {
   deserializeTacticalInstructions,
   deserializeTacticalSequences,
   nextInstructionTimeMs,
+  nextSequentialInstructionTimeMs,
   normalizeInstructionTimeMs,
   reorderTacticalInstruction,
   reorderTacticalSequence,
@@ -70,6 +71,27 @@ test("suggests instruction times independently for each home player", () => {
   assert.equal(
     nextInstructionTimeMs([pass({ atMs: 11_500 })], "home:st", 12_000),
     null,
+  );
+});
+
+test("places a sequential instruction after the previous action actually finishes", () => {
+  const instructions = [
+    pass({ id: "opening-pass", atMs: 0 }),
+    movement({ id: "support-run", atMs: 100 }),
+  ];
+  const terminalAtMsById = new Map([
+    ["opening-pass", 850],
+    ["support-run", 500],
+  ]);
+
+  assert.equal(
+    nextSequentialInstructionTimeMs(
+      instructions,
+      terminalAtMsById,
+      200,
+      12_000,
+    ),
+    700,
   );
 });
 

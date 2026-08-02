@@ -24,6 +24,7 @@ import {
   appendTacticalInstruction,
   createDefaultTacticalSequence,
   isMovementInstruction,
+  nextSequentialInstructionTimeMs,
   reorderTacticalSequence,
   removeTacticalInstruction,
   removeTacticalSequence,
@@ -1433,6 +1434,29 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     }
     return cancellations;
   }, [routeRun]);
+  const instructionTerminalAtMsById = useMemo(() => {
+    const terminals = new Map<string, number>();
+    const events =
+      instructionPreviewRun?.frames.flatMap(
+        (candidate) => candidate.events,
+      ) ?? [];
+    for (const event of events) {
+      const instructionId =
+        event.type === "instruction_completed" ||
+        event.type === "instruction_cancelled"
+          ? event.instructionId
+          : event.type === "pass_received" ||
+              event.type === "pass_intercepted" ||
+              event.type === "pass_incomplete" ||
+              event.type === "pass_cancelled"
+            ? event.passId
+            : undefined;
+      if (instructionId && Number.isFinite(event.atMs)) {
+        terminals.set(instructionId, event.atMs);
+      }
+    }
+    return terminals;
+  }, [instructionPreviewRun]);
   const plannedMovementPaths = useMemo(() => {
     const lastPositionByPlayer = new Map<string, PitchPoint>(
       Object.entries(placements).map(([participantId, placement]) => [
@@ -3003,10 +3027,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     const atMs =
       mode === "simultaneous" || otherInstructions.length === 0
         ? 0
-        : normalizedSequenceOffset(
-            Math.max(
-              ...otherInstructions.map((instruction) => instruction.atMs),
-            ) + SIMULATION_TICK_MS,
+        : nextSequentialInstructionTimeMs(
+            otherInstructions,
+            instructionTerminalAtMsById,
+            instructionPreviewRun?.sequenceTimeline?.find(
+              (timeline) => timeline.id === activeAction.sequenceId,
+            )?.startedAtMs ?? 0,
             durationMs,
           );
     const draft = { ...activeAction, atMs };
@@ -4529,12 +4555,17 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               </span>
             </div>
             {frame ? (
-              <div className="sim-phase-legend" aria-label="현재 팀 전술 국면">
-                <span>
+              <div
+                className="sim-phase-legend"
+                aria-label="현재 팀 전술 국면"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <span className="sim-phase-home">
                   {homeTeam?.name}: {tacticalPhaseLabels[frame.tactics.home.phase]}
                   {frame.tactics.home.offsideTrapActive ? " · 오프사이드 라인" : ""}
                 </span>
-                <span>
+                <span className="sim-phase-away">
                   {awayTeam?.name}: {tacticalPhaseLabels[frame.tactics.away.phase]}
                   {frame.tactics.away.offsideTrapActive ? " · 오프사이드 라인" : ""}
                 </span>
@@ -4593,6 +4624,33 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               className="sim-penalty-box sim-penalty-box-bottom"
               aria-hidden="true"
             />
+
+            {frame
+              ? (["home", "away"] as const).map((teamSide) => {
+                  const tactics = frame.tactics[teamSide];
+                  if (tactics.inPossession || tactics.phase === "loose-ball") {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={`defensive-line:${teamSide}`}
+                      className={`sim-defensive-line sim-defensive-line-${teamSide}${tactics.offsideTrapActive ? " is-offside" : ""}`}
+                      style={
+                        {
+                          top: `${tactics.defensiveLineY}%`,
+                        } as CSSProperties
+                      }
+                      aria-hidden="true"
+                    >
+                      <span>
+                        {tactics.offsideTrapActive
+                          ? "오프사이드 라인"
+                          : "수비라인"}
+                      </span>
+                    </div>
+                  );
+                })
+              : null}
 
             {selectedParticipant?.teamSide === "home" &&
             selectedSequence &&

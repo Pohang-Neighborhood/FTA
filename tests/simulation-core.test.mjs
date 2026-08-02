@@ -904,15 +904,50 @@ test("moves unassigned home support and assigns away pressure, cover, block, and
   );
 });
 
-test("exposes deterministic team phases and changes transition into organized defense", () => {
+test("starts organized and enters defensive transition only after a turnover", () => {
+  const players = createPlayers({
+    homeOverrides: {
+      "home:st": { position: { x: 50, y: 68 } },
+      "home:lcm": { position: { x: 50, y: 34 } },
+    },
+    awayOverrides: {
+      "away:dm": {
+        position: { x: 50, y: 51 },
+        abilities: { ...defaultAbilities, defending: 95, reactions: 95 },
+      },
+    },
+  });
   const run = compileSimulation(
-    createScenario({ durationMs: 1_250, manualRoutes: [] }),
+    createScenario({
+      durationMs: 2_500,
+      players,
+      initialBallOwnerId: "home:st",
+      manualRoutes: [],
+      passes: [
+        {
+          id: "turnover-pass",
+          fromPlayerId: "home:st",
+          toPlayerId: "home:lcm",
+          atMs: 0,
+        },
+      ],
+    }),
+  );
+  const interception = allEvents(run).find(
+    (event) => event.type === "pass_intercepted",
   );
 
-  assert.equal(run.frames[0].tactics.home.phase, "final-third");
-  assert.equal(run.frames[0].tactics.away.phase, "defensive-transition");
+  assert.equal(run.frames[0].tactics.away.phase, "organized-defense");
+  assert.ok(interception);
   assert.equal(
-    run.frames.find((frame) => frame.elapsedMs === 1_000).tactics.away.phase,
+    run.frames.find((frame) => frame.elapsedMs === interception.atMs).tactics
+      .home.phase,
+    "defensive-transition",
+  );
+  assert.equal(
+    run.frames.find(
+      (frame) => frame.elapsedMs === interception.atMs + 1_000,
+    ).tactics.home.phase,
     "organized-defense",
   );
 });
@@ -963,6 +998,83 @@ test("moves the whole back line together when the offside condition is stable", 
       (playerId) => frame.players[playerId].behavior === "offside-line",
     ),
   );
+});
+
+test("drops the offside line while a pass is in flight", () => {
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 2_000,
+      players: createPlayers({
+        moveAwayFromPassLane: true,
+        homeOverrides: {
+          "home:st": { position: { x: 50, y: 60 } },
+          "home:lcm": { position: { x: 50, y: 30 } },
+        },
+      }),
+      initialBallOwnerId: "home:st",
+      manualRoutes: [
+        {
+          playerId: "home:st",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 60 }],
+        },
+        {
+          playerId: "home:lcm",
+          startAtMs: 0,
+          waypoints: [{ x: 50, y: 30 }],
+        },
+      ],
+      passes: [
+        {
+          id: "late-pass",
+          fromPlayerId: "home:st",
+          toPlayerId: "home:lcm",
+          atMs: 1_000,
+        },
+      ],
+    }),
+  );
+  const inFlightFrames = run.frames.filter(
+    (frame) => frame.ball.kind === "inFlight",
+  );
+
+  assert.ok(inFlightFrames.length > 0);
+  assert.ok(
+    inFlightFrames.every(
+      (frame) => frame.tactics.away.offsideTrapActive === false,
+    ),
+  );
+});
+
+test("keeps feasible automatic targets at least the configured distance apart", () => {
+  const players = createPlayers().map((player) => ({
+    ...player,
+    position: { x: 50, y: 50 },
+  }));
+  const run = compileSimulation(
+    createScenario({
+      durationMs: 500,
+      players,
+      initialBallOwnerId: "home:st",
+      manualRoutes: [],
+    }),
+  );
+  const frame = run.frames.find((candidate) => candidate.elapsedMs === 250);
+
+  for (const team of ["home", "away"]) {
+    const targets = Object.values(frame.players)
+      .filter((player) => player.team === team && player.mode === "automatic")
+      .map((player) => player.target);
+    for (let left = 0; left < targets.length; left += 1) {
+      for (let right = left + 1; right < targets.length; right += 1) {
+        const dx = ((targets[left].x - targets[right].x) / 100) * 68;
+        const dy = ((targets[left].y - targets[right].y) / 100) * 105;
+        assert.ok(
+          Math.hypot(dx, dy) >= run.config.automaticMinimumSpacingM - 0.01,
+        );
+      }
+    }
+  }
 });
 
 test("reserves center backs for rest defense while the team attacks", () => {

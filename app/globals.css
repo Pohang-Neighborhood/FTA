@@ -3053,12 +3053,13 @@ button:disabled {
 
 .sim-phase-legend {
   align-items: center;
-  color: var(--muted-strong);
   display: flex;
   flex-wrap: wrap;
-  font-size: 9px;
+  font-size: 11px;
+  font-weight: 750;
   gap: 6px 12px;
   justify-content: center;
+  line-height: 1.35;
 }
 
 .sim-phase-legend span {
@@ -3066,6 +3067,14 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 4px 8px;
+}
+
+.sim-phase-home {
+  color: var(--lime);
+}
+
+.sim-phase-away {
+  color: #ff9c86;
 }
 
 .sim-legend-home {
@@ -3268,6 +3277,45 @@ button:disabled {
 .sim-penalty-box-bottom {
   border-bottom: 0;
   bottom: 2.7%;
+}
+
+.sim-defensive-line {
+  border-top: 2px dashed currentColor;
+  left: 3.5%;
+  opacity: 0.68;
+  pointer-events: none;
+  position: absolute;
+  right: 3.5%;
+  transform: translateY(-50%);
+  transition: top 180ms linear;
+  z-index: 3;
+}
+
+.sim-defensive-line-home {
+  color: var(--lime);
+}
+
+.sim-defensive-line-away {
+  color: #ff8064;
+}
+
+.sim-defensive-line.is-offside {
+  border-top-style: solid;
+  filter: drop-shadow(0 0 4px currentColor);
+  opacity: 0.9;
+}
+
+.sim-defensive-line span {
+  background: rgba(7, 16, 13, 0.9);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 850;
+  padding: 2px 5px;
+  position: absolute;
+  right: 0;
+  top: -12px;
+  white-space: nowrap;
 }
 
 .sim-route-layer {

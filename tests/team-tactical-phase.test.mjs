@@ -37,13 +37,13 @@ test("keeps a deterministic transition window before organized defense", () => {
     team: "home",
     possessionTeam: "away",
     ballPosition: { x: 30, y: 62 },
-    possessionElapsedMs: 750,
+    possessionTransitionElapsedMs: 750,
   });
   const organized = deriveTeamTacticalState({
     team: "home",
     possessionTeam: "away",
     ballPosition: { x: 30, y: 62 },
-    possessionElapsedMs: 1_000,
+    possessionTransitionElapsedMs: 1_000,
   });
 
   assert.equal(transition.phase, "defensive-transition");
@@ -58,18 +58,40 @@ test("activates a collective offside line only in stable central conditions", ()
     team: "home",
     possessionTeam: "away",
     ballPosition: { x: 50, y: 40 },
-    possessionElapsedMs: 1_500,
+    offsideTrapEligible: true,
   });
   const wide = deriveTeamTacticalState({
     team: "home",
     possessionTeam: "away",
     ballPosition: { x: 8, y: 40 },
-    possessionElapsedMs: 1_500,
+    offsideTrapEligible: true,
   });
 
   assert.equal(active.offsideTrapActive, true);
   assert.equal(wide.offsideTrapActive, false);
   assert.ok(active.defensiveLineY < wide.defensiveLineY);
+});
+
+test("starts in an organized shape without inventing an initial turnover", () => {
+  const state = deriveTeamTacticalState({
+    team: "away",
+    possessionTeam: "home",
+    ballPosition: { x: 50, y: 40 },
+  });
+
+  assert.equal(state.phase, "organized-defense");
+  assert.equal(state.offsideTrapActive, false);
+});
+
+test("keeps the offside line inactive without a controlled pressure trigger", () => {
+  const state = deriveTeamTacticalState({
+    team: "home",
+    possessionTeam: "away",
+    ballPosition: { x: 50, y: 40 },
+    offsideTrapEligible: false,
+  });
+
+  assert.equal(state.offsideTrapActive, false);
 });
 
 test("returns an explicit loose-ball state for both teams", () => {
