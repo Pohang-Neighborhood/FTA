@@ -2864,6 +2864,57 @@ button:disabled {
   min-width: 0;
 }
 
+.sim-pitch-mode-switch {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 auto 10px;
+  max-width: 430px;
+  padding: 5px;
+}
+
+.sim-pitch-mode-switch button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted-strong);
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 5px 10px;
+}
+
+.sim-pitch-mode-switch button strong {
+  color: #fff;
+  font-size: 10px;
+}
+
+.sim-pitch-mode-switch button span {
+  font-size: 8px;
+}
+
+.sim-pitch-mode-switch button.is-selected {
+  background: rgba(216, 255, 79, 0.13);
+  border-color: rgba(216, 255, 79, 0.5);
+  color: var(--lime);
+}
+
+.sim-pitch-mode-switch button:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.sim-pitch-mode-switch button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .sim-tactical-legend {
   display: grid;
   gap: 5px;
@@ -2964,6 +3015,55 @@ button:disabled {
 
 .sim-pitch-locked {
   cursor: progress;
+}
+
+.sim-pitch-targeting-movement {
+  touch-action: none;
+}
+
+.sim-pitch-action-bar {
+  align-items: center;
+  backdrop-filter: blur(10px);
+  background: rgba(7, 16, 13, 0.88);
+  border: 1px solid rgba(216, 255, 79, 0.5);
+  border-radius: 999px;
+  display: flex;
+  gap: 4px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  padding: 4px 5px 4px 10px;
+  position: absolute;
+  top: 9px;
+  transform: translateX(-50%);
+  z-index: 8;
+}
+
+.sim-pitch-action-bar strong {
+  color: #fff;
+  font-size: 9px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-pitch-action-bar button {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.sim-pitch-action-bar button:hover,
+.sim-pitch-action-bar button:focus-visible {
+  background: var(--lime);
+  color: #07100d;
 }
 
 .sim-pitch-stripes {
@@ -3101,6 +3201,13 @@ button:disabled {
   stroke-dasharray: 6 2;
 }
 
+.sim-route-pass-drag {
+  filter: drop-shadow(0 0 4px rgba(118, 221, 255, 0.75));
+  opacity: 1;
+  stroke-dasharray: 3 2;
+  stroke-width: 3;
+}
+
 .sim-route-automatic {
   opacity: 0.47;
   stroke-dasharray: 5 4;
@@ -3155,6 +3262,53 @@ button:disabled {
 .sim-waypoint-cancelled {
   border-color: #ff8064;
   color: #ff8064;
+}
+
+button.sim-waypoint {
+  appearance: none;
+  cursor: grab;
+  padding: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+button.sim-waypoint:active {
+  cursor: grabbing;
+}
+
+button.sim-waypoint.is-selected,
+button.sim-waypoint:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(7, 16, 13, 0.8),
+    0 0 0 5px #fff;
+  outline: none;
+}
+
+.sim-waypoint-insert {
+  align-items: center;
+  appearance: none;
+  background: rgba(7, 16, 13, 0.86);
+  border: 1px dashed rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  height: 24px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  touch-action: manipulation;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  z-index: 4;
+}
+
+.sim-waypoint-insert:hover,
+.sim-waypoint-insert:focus-visible {
+  background: var(--lime);
+  color: #07100d;
+  outline: none;
 }
 
 .sim-target-cursor {
