@@ -63,6 +63,9 @@ test("server-renders the staged match setup before the simulator", async () => {
   assert.match(stylesheet, /\.sim-team-choice-grid\s*\{/s);
   assert.match(stylesheet, /\.sim-formation-team-grid\s*\{/s);
   assert.match(stylesheet, /\.sim-setup-mini-pitch\s*\{/s);
+  assert.match(stylesheet, /\.sim-lineup-editor\s*\{/s);
+  assert.match(stylesheet, /\.sim-lineup-swap\s*\{/s);
+  assert.match(stylesheet, /\.sim-bench-list\s*\{/s);
   assert.match(stylesheet, /\.sim-setup-reset-confirmation\s*\{/s);
   assert.match(stylesheet, /\.sim-player-name\s*\{[^}]*pointer-events:\s*none;/s);
   assert.match(stylesheet, /\.sim-target-cursor\s*\{/s);

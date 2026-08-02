@@ -2057,6 +2057,13 @@ button:disabled {
   line-height: 1;
 }
 
+.sim-setup-mini-player.is-selected {
+  box-shadow:
+    0 0 0 3px #07100d,
+    0 0 0 5px var(--focus);
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
 .sim-setup-lineup {
   display: grid;
   gap: 4px;
@@ -2067,33 +2074,340 @@ button:disabled {
 }
 
 .sim-setup-lineup li {
-  align-items: center;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--line);
   border-radius: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sim-setup-lineup li.is-selected {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.sim-setup-lineup li > button,
+.sim-setup-lineup li > div {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
   display: grid;
   gap: 4px;
   grid-template-columns: 24px 18px minmax(0, 1fr);
-  min-width: 0;
+  min-height: 31px;
   padding: 6px;
+  text-align: left;
+  width: 100%;
 }
 
-.sim-setup-lineup li > span {
+.sim-setup-lineup li > button {
+  cursor: pointer;
+}
+
+.sim-setup-lineup li > button:hover {
+  background: rgba(216, 255, 79, 0.08);
+}
+
+.sim-setup-lineup li > button:focus-visible {
+  outline-offset: -3px;
+}
+
+.sim-setup-lineup li > button span,
+.sim-setup-lineup li > div span {
   color: var(--lime);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 6px;
 }
 
-.sim-setup-lineup li > strong {
+.sim-setup-lineup li > button strong,
+.sim-setup-lineup li > div strong {
   font-size: 8px;
 }
 
-.sim-setup-lineup li > small {
+.sim-setup-lineup li > button small,
+.sim-setup-lineup li > div small {
   color: var(--muted-strong);
   font-size: 7px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sim-lineup-editor {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 17px;
+}
+
+.sim-lineup-editor > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sim-lineup-editor > header p,
+.sim-lineup-editor > header h4 {
+  margin: 0;
+}
+
+.sim-lineup-editor > header h4 {
+  font-size: 14px;
+  letter-spacing: -0.035em;
+  margin-top: 3px;
+}
+
+.sim-lineup-reset {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 8px;
+  font-weight: 750;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.sim-lineup-help,
+.sim-lineup-selected-slot {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 12px 0 10px;
+  padding: 10px;
+}
+
+.sim-lineup-help {
+  color: var(--muted-strong);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.sim-lineup-selected-slot {
+  display: grid;
+  gap: 3px;
+}
+
+.sim-lineup-selected-slot > span {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.sim-lineup-selected-slot > strong {
+  font-size: 11px;
+}
+
+.sim-lineup-selected-slot > small {
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.4;
+}
+
+.sim-lineup-swap {
+  background: rgba(216, 255, 79, 0.045);
+  border: 1px solid rgba(216, 255, 79, 0.16);
+  border-radius: 10px;
+  margin: 0 0 10px;
+  padding: 0 10px;
+}
+
+.sim-lineup-swap summary {
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 10px 0;
+}
+
+.sim-lineup-swap > p {
+  color: var(--muted-strong);
+  font-size: 7px;
+  line-height: 1.5;
+  margin: -2px 0 8px;
+}
+
+.sim-lineup-swap ul {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.sim-lineup-swap button {
+  align-items: center;
+  background: #0a1511;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 2px 6px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 38px;
+  padding: 6px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.sim-lineup-swap button:hover,
+.sim-lineup-swap button:focus-visible {
+  border-color: var(--lime);
+}
+
+.sim-lineup-swap button.is-out-of-position {
+  border-color: rgba(255, 107, 74, 0.38);
+}
+
+.sim-lineup-swap button span {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 850;
+}
+
+.sim-lineup-swap button strong {
+  font-size: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-lineup-swap button small {
+  color: var(--muted-strong);
+  font-size: 6px;
+  white-space: nowrap;
+}
+
+.sim-lineup-swap button.is-out-of-position small {
+  color: #ffb09e;
+}
+
+.sim-lineup-swap .sim-lineup-swap-empty {
+  color: #ffb09e;
+  margin-bottom: 10px;
+}
+
+.sim-bench-list {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  max-height: 430px;
+  overflow: auto;
+  padding: 0 3px 0 0;
+  scrollbar-color: rgba(216, 255, 79, 0.22) transparent;
+  scrollbar-width: thin;
+}
+
+.sim-bench-list li {
+  min-width: 0;
+}
+
+.sim-bench-list button,
+.sim-bench-roster-item {
+  align-items: center;
+  background: #0a1511;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  min-height: 48px;
+  padding: 7px 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.sim-bench-list button {
+  cursor: pointer;
+  grid-template-areas:
+    "position identity fit"
+    "abilities abilities abilities";
+}
+
+.sim-bench-list button:hover {
+  border-color: var(--lime);
+}
+
+.sim-bench-list button.is-out-of-position {
+  border-color: rgba(255, 107, 74, 0.38);
+}
+
+.sim-bench-position {
+  color: var(--lime);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 850;
+  grid-area: position;
+}
+
+.sim-bench-identity {
+  display: grid;
+  gap: 2px;
+  grid-area: identity;
+  min-width: 0;
+}
+
+.sim-bench-identity strong {
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-bench-identity small {
+  color: var(--muted);
+  font-size: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-bench-fit,
+.sim-bench-overall {
+  color: var(--lime);
+  font-size: 6px;
+  font-weight: 800;
+  grid-area: fit;
+  white-space: nowrap;
+}
+
+.is-out-of-position .sim-bench-fit {
+  color: #ffb09e;
+}
+
+.sim-bench-abilities {
+  display: grid;
+  gap: 4px;
+  grid-area: abilities;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sim-bench-abilities small {
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 6px;
+  padding: 4px;
+  text-align: center;
+}
+
+.sim-bench-abilities b {
+  color: var(--ink);
+}
+
+.sim-bench-roster-item .sim-bench-position,
+.sim-bench-roster-item .sim-bench-identity,
+.sim-bench-roster-item .sim-bench-overall {
+  grid-area: auto;
 }
 
 .sim-setup-summary {
@@ -2415,6 +2729,13 @@ button:disabled {
 .sim-current-match small {
   color: var(--muted);
   font-size: 8px;
+}
+
+.sim-current-match em {
+  color: var(--lime);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 750;
 }
 
 .sim-current-match > i {
@@ -3960,6 +4281,23 @@ button:disabled {
 
   .sim-setup-actions button {
     width: 100%;
+  }
+
+  .sim-lineup-editor > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sim-lineup-reset {
+    width: 100%;
+  }
+
+  .sim-bench-abilities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sim-lineup-swap ul {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sim-header h2 {

@@ -30,9 +30,16 @@ import {
   sortTacticalInstructions,
 } from "../lib/instruction-model.js";
 import {
+  createParticipantId,
   positionForFormationRole,
   selectDefaultLineup,
 } from "../lib/player-catalog.js";
+import {
+  lineupCompatibility,
+  replaceLineupSlot,
+  sortLineupCandidates,
+  swapLineupSlots,
+} from "../lib/lineup-editor.js";
 import { compactPlayerName } from "../lib/player-name.js";
 import {
   MAX_SIMULATION_DURATION_MS,
@@ -73,6 +80,11 @@ type Placement = PitchPoint & {
 type PlacementMap = Record<string, Placement>;
 type PlacementOverrideMap = Record<string, PitchPoint>;
 type SetupStep = "teams" | "formations" | "simulator";
+type LineupSelection = {
+  teamId: string;
+  formationId: string;
+  playerIds: string[];
+};
 
 function positionGroupClass(role: string) {
   return `sim-player-position-${positionForFormationRole(role).toLowerCase()}`;
@@ -327,16 +339,70 @@ function selectLineup(
   }) as LineupParticipant[];
 }
 
+function applyLineupSelection(
+  defaultLineup: LineupParticipant[],
+  team: SimulatorTeam | undefined,
+  selection: LineupSelection | null,
+  teamSide: TeamSide,
+  formationId: string,
+) {
+  if (
+    !selection ||
+    !team ||
+    selection.teamId !== team.id ||
+    selection.formationId !== formationId
+  ) {
+    return defaultLineup;
+  }
+  if (
+    selection.playerIds.length !== defaultLineup.length ||
+    new Set(selection.playerIds).size !== selection.playerIds.length
+  ) {
+    throw new RangeError("선발 명단은 중복 없는 11명으로 구성해야 합니다.");
+  }
+
+  const playersById = new Map(team.players.map((player) => [player.id, player]));
+  const selectedPlayers = selection.playerIds.map((playerId) => {
+    const player = playersById.get(playerId);
+    if (!player) {
+      throw new RangeError("선발 명단에 현재 팀 소속이 아닌 선수가 있습니다.");
+    }
+    return player;
+  });
+  if (selectedPlayers.filter((player) => player.position === "GK").length !== 1) {
+    throw new RangeError("선발 명단에는 골키퍼가 정확히 한 명 필요합니다.");
+  }
+
+  return defaultLineup.map((participant, index) => {
+    const player = selectedPlayers[index];
+    return {
+      ...participant,
+      participantId: createParticipantId(teamSide, player.id) as ParticipantId,
+      player,
+    };
+  });
+}
+
+function lineupSelectionKey(selection: LineupSelection | null) {
+  return selection
+    ? `${selection.teamId}:${selection.formationId}:${selection.playerIds.join(",")}`
+    : "auto";
+}
+
 function SetupFormationPreview({
   teamName,
   formation,
   lineup,
   teamSide,
+  selectedSlotIndex = null,
+  onSelectSlot,
 }: {
   teamName: string;
   formation: Formation;
   lineup: LineupParticipant[];
   teamSide: TeamSide;
+  selectedSlotIndex?: number | null;
+  onSelectSlot?: (slotIndex: number) => void;
 }) {
   const slots = teamSide === "away" ? mirroredSlots(formation) : formation.slots;
 
@@ -350,7 +416,7 @@ function SetupFormationPreview({
           return (
             <span
               key={participant.participantId}
-              className={`sim-setup-mini-player sim-setup-mini-player-${teamSide}`}
+              className={`sim-setup-mini-player sim-setup-mini-player-${teamSide}${selectedSlotIndex === index ? " is-selected" : ""}`}
               style={
                 {
                   left: `${slot.x}%`,
@@ -364,12 +430,30 @@ function SetupFormationPreview({
           );
         })}
       </div>
-      <ol className="sim-setup-lineup" aria-label={`${teamName} 자동 선발 명단`}>
-        {lineup.map((participant) => (
-          <li key={participant.participantId}>
-            <span>{participant.role}</span>
-            <strong>{participant.player.number}</strong>
-            <small>{compactPlayerName(participant.player.name)}</small>
+      <ol className="sim-setup-lineup" aria-label={`${teamName} 선발 명단`}>
+        {lineup.map((participant, index) => (
+          <li
+            key={participant.participantId}
+            className={selectedSlotIndex === index ? "is-selected" : ""}
+          >
+            {onSelectSlot ? (
+              <button
+                type="button"
+                aria-pressed={selectedSlotIndex === index}
+                aria-label={`${participant.role} 슬롯, ${participant.player.number}번 ${participant.player.name} 교체 대상 선택`}
+                onClick={() => onSelectSlot(index)}
+              >
+                <span>{participant.role}</span>
+                <strong>{participant.player.number}</strong>
+                <small>{compactPlayerName(participant.player.name)}</small>
+              </button>
+            ) : (
+              <div>
+                <span>{participant.role}</span>
+                <strong>{participant.player.number}</strong>
+                <small>{compactPlayerName(participant.player.name)}</small>
+              </div>
+            )}
           </li>
         ))}
       </ol>
@@ -562,6 +646,12 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
   );
   const [showSetupResetConfirmation, setShowSetupResetConfirmation] =
     useState(false);
+  const [homeLineupSelection, setHomeLineupSelection] =
+    useState<LineupSelection | null>(null);
+  const [draftHomeLineupSelection, setDraftHomeLineupSelection] =
+    useState<LineupSelection | null>(null);
+  const [selectedDraftLineupSlot, setSelectedDraftLineupSlot] =
+    useState<number | null>(null);
   const [selectedParticipantId, setSelectedParticipantId] =
     useState<ParticipantId | null>(null);
   const [placementOverrides, setPlacementOverrides] =
@@ -618,7 +708,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     draftHomeTeamId !== homeTeamId ||
     draftAwayTeamId !== awayTeamId ||
     draftHomeFormationId !== homeFormationId ||
-    draftAwayFormationId !== awayFormationId;
+    draftAwayFormationId !== awayFormationId ||
+    lineupSelectionKey(draftHomeLineupSelection) !==
+      lineupSelectionKey(homeLineupSelection);
 
   const setupPreviewState = useMemo(() => {
     if (!setupTeamsAreDistinct) {
@@ -629,12 +721,19 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
       };
     }
     try {
+      const defaultHomeLineup = selectLineup(
+        catalog,
+        draftHomeTeamId,
+        "home",
+        draftHomeFormation,
+      );
       return {
-        home: selectLineup(
-          catalog,
-          draftHomeTeamId,
+        home: applyLineupSelection(
+          defaultHomeLineup,
+          draftHomeTeam,
+          draftHomeLineupSelection,
           "home",
-          draftHomeFormation,
+          draftHomeFormationId,
         ),
         away: selectLineup(
           catalog,
@@ -658,15 +757,110 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     catalog,
     draftAwayFormation,
     draftAwayTeamId,
+    draftHomeLineupSelection,
     draftHomeFormation,
+    draftHomeFormationId,
+    draftHomeTeam,
     draftHomeTeamId,
     setupTeamsAreDistinct,
   ]);
 
+  const setupHomeLineupPlayerIds = setupPreviewState.home.map(
+    (participant) => participant.player.id,
+  );
+  const selectedDraftLineupParticipant =
+    selectedDraftLineupSlot === null
+      ? undefined
+      : setupPreviewState.home[selectedDraftLineupSlot];
+  const setupBenchCandidates = useMemo(
+    () =>
+      selectedDraftLineupParticipant && draftHomeTeam
+        ? sortLineupCandidates(
+            draftHomeTeam.players,
+            setupHomeLineupPlayerIds,
+            selectedDraftLineupParticipant.role,
+          )
+        : [],
+    [
+      draftHomeTeam,
+      selectedDraftLineupParticipant,
+      setupHomeLineupPlayerIds,
+    ],
+  );
+  const setupLineupSwapCandidates = useMemo(() => {
+    if (!selectedDraftLineupParticipant || selectedDraftLineupSlot === null) {
+      return [];
+    }
+
+    return setupPreviewState.home.flatMap((participant, slotIndex) => {
+      if (slotIndex === selectedDraftLineupSlot) {
+        return [];
+      }
+      const selectedPlayerCompatibility = lineupCompatibility(
+        participant.role,
+        selectedDraftLineupParticipant.player.position,
+      );
+      const targetPlayerCompatibility = lineupCompatibility(
+        selectedDraftLineupParticipant.role,
+        participant.player.position,
+      );
+      if (
+        selectedPlayerCompatibility === "ineligible" ||
+        targetPlayerCompatibility === "ineligible"
+      ) {
+        return [];
+      }
+      return [
+        {
+          participant,
+          slotIndex,
+          isExact:
+            selectedPlayerCompatibility === "exact" &&
+            targetPlayerCompatibility === "exact",
+        },
+      ];
+    });
+  }, [
+    selectedDraftLineupParticipant,
+    selectedDraftLineupSlot,
+    setupPreviewState.home,
+  ]);
+  const setupHomeBenchPlayers = useMemo(() => {
+    const selected = new Set(setupHomeLineupPlayerIds);
+    const positionOrder = new Map([
+      ["GK", 0],
+      ["DF", 1],
+      ["MF", 2],
+      ["FW", 3],
+    ]);
+    return [...(draftHomeTeam?.players ?? [])]
+      .filter((player) => !selected.has(player.id))
+      .sort(
+        (left, right) =>
+          (positionOrder.get(left.position) ?? 9) -
+            (positionOrder.get(right.position) ?? 9) ||
+          right.abilities.overall - left.abilities.overall ||
+          left.name.localeCompare(right.name) ||
+          left.id.localeCompare(right.id),
+      );
+  }, [draftHomeTeam, setupHomeLineupPlayerIds]);
+
   const lineupState = useMemo(() => {
     try {
+      const defaultHomeLineup = selectLineup(
+        catalog,
+        homeTeamId,
+        "home",
+        homeFormation,
+      );
       return {
-        home: selectLineup(catalog, homeTeamId, "home", homeFormation),
+        home: applyLineupSelection(
+          defaultHomeLineup,
+          homeTeam,
+          homeLineupSelection,
+          "home",
+          homeFormationId,
+        ),
         away: selectLineup(catalog, awayTeamId, "away", awayFormation),
         error: null,
       };
@@ -677,7 +871,16 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
         error: error instanceof Error ? error.message : "선발 명단을 구성하지 못했습니다.",
       };
     }
-  }, [awayFormation, awayTeamId, catalog, homeFormation, homeTeamId]);
+  }, [
+    awayFormation,
+    awayTeamId,
+    catalog,
+    homeFormation,
+    homeFormationId,
+    homeLineupSelection,
+    homeTeam,
+    homeTeamId,
+  ]);
 
   const participants = useMemo(
     () => [...lineupState.home, ...lineupState.away],
@@ -1130,12 +1333,93 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     invalidateCompilation(message);
   }
 
+  function changeDraftTeam(side: TeamSide, teamId: string) {
+    if (side === "home") {
+      setDraftHomeTeamId(teamId);
+      setDraftHomeLineupSelection(null);
+      setSelectedDraftLineupSlot(null);
+      return;
+    }
+    setDraftAwayTeamId(teamId);
+  }
+
+  function changeDraftFormation(side: TeamSide, formationId: string) {
+    if (side === "home") {
+      setDraftHomeFormationId(formationId);
+      setDraftHomeLineupSelection(null);
+      setSelectedDraftLineupSlot(null);
+      return;
+    }
+    setDraftAwayFormationId(formationId);
+  }
+
+  function replaceDraftHomeLineupPlayer(incomingPlayerId: string) {
+    if (selectedDraftLineupSlot === null) {
+      return;
+    }
+    try {
+      const nextPlayerIds = replaceLineupSlot(
+        setupHomeLineupPlayerIds,
+        selectedDraftLineupSlot,
+        incomingPlayerId,
+      );
+      setDraftHomeLineupSelection({
+        teamId: draftHomeTeamId,
+        formationId: draftHomeFormationId,
+        playerIds: nextPlayerIds,
+      });
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "선수를 교체하지 못했습니다.",
+      );
+    }
+  }
+
+  function swapDraftHomeLineupPlayers(targetSlotIndex: number) {
+    if (selectedDraftLineupSlot === null) {
+      return;
+    }
+    try {
+      const nextPlayerIds = swapLineupSlots(
+        setupHomeLineupPlayerIds,
+        selectedDraftLineupSlot,
+        targetSlotIndex,
+      );
+      setDraftHomeLineupSelection({
+        teamId: draftHomeTeamId,
+        formationId: draftHomeFormationId,
+        playerIds: nextPlayerIds,
+      });
+      setSelectedDraftLineupSlot(null);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "선발 선수의 포지션을 변경하지 못했습니다.",
+      );
+    }
+  }
+
+  function resetDraftHomeLineup() {
+    setDraftHomeLineupSelection(null);
+    setSelectedDraftLineupSlot(null);
+  }
+
   function openInitialSetup() {
     setIsPlaying(false);
     setDraftHomeTeamId(homeTeamId);
     setDraftAwayTeamId(awayTeamId);
     setDraftHomeFormationId(homeFormationId);
     setDraftAwayFormationId(awayFormationId);
+    setDraftHomeLineupSelection(
+      homeLineupSelection
+        ? {
+            ...homeLineupSelection,
+            playerIds: [...homeLineupSelection.playerIds],
+          }
+        : null,
+    );
+    setSelectedDraftLineupSlot(null);
     setShowSetupResetConfirmation(false);
     setSetupStep("formations");
   }
@@ -1145,6 +1429,15 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setDraftAwayTeamId(awayTeamId);
     setDraftHomeFormationId(homeFormationId);
     setDraftAwayFormationId(awayFormationId);
+    setDraftHomeLineupSelection(
+      homeLineupSelection
+        ? {
+            ...homeLineupSelection,
+            playerIds: [...homeLineupSelection.playerIds],
+          }
+        : null,
+    );
+    setSelectedDraftLineupSlot(null);
     setShowSetupResetConfirmation(false);
     setSetupStep("simulator");
     setStatusMessage("기존 팀·포메이션 설정을 유지했습니다.");
@@ -1159,6 +1452,14 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
     setAwayTeamId(draftAwayTeamId);
     setHomeFormationId(draftHomeFormationId);
     setAwayFormationId(draftAwayFormationId);
+    setHomeLineupSelection(
+      draftHomeLineupSelection
+        ? {
+            ...draftHomeLineupSelection,
+            playerIds: [...draftHomeLineupSelection.playerIds],
+          }
+        : null,
+    );
     setHasEnteredSimulator(true);
     setShowSetupResetConfirmation(false);
     setSetupStep("simulator");
@@ -2133,7 +2434,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 <select
                   id="sim-setup-home-team"
                   value={draftHomeTeamId}
-                  onChange={(event) => setDraftHomeTeamId(event.target.value)}
+                  onChange={(event) =>
+                    changeDraftTeam("home", event.target.value)
+                  }
                 >
                   {teams.map((team) => (
                     <option
@@ -2162,7 +2465,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                 <select
                   id="sim-setup-away-team"
                   value={draftAwayTeamId}
-                  onChange={(event) => setDraftAwayTeamId(event.target.value)}
+                  onChange={(event) =>
+                    changeDraftTeam("away", event.target.value)
+                  }
                 >
                   {teams.map((team) => (
                     <option
@@ -2217,7 +2522,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                           : ""
                       }
                       aria-pressed={formation.id === draftHomeFormationId}
-                      onClick={() => setDraftHomeFormationId(formation.id)}
+                      onClick={() =>
+                        changeDraftFormation("home", formation.id)
+                      }
                     >
                       <strong>{formation.label}</strong>
                       <span>{formation.name}</span>
@@ -2230,7 +2537,139 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                   formation={draftHomeFormation}
                   lineup={setupPreviewState.home}
                   teamSide="home"
+                  selectedSlotIndex={selectedDraftLineupSlot}
+                  onSelectSlot={setSelectedDraftLineupSlot}
                 />
+
+                <section
+                  className="sim-lineup-editor"
+                  aria-labelledby="sim-lineup-editor-title"
+                >
+                  <header>
+                    <div>
+                      <p>선발 편집</p>
+                      <h4 id="sim-lineup-editor-title">
+                        선발 11 · 후보 {setupHomeBenchPlayers.length}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      className="sim-lineup-reset"
+                      disabled={!draftHomeLineupSelection}
+                      onClick={resetDraftHomeLineup}
+                    >
+                      자동 선발로 초기화
+                    </button>
+                  </header>
+
+                  {selectedDraftLineupParticipant ? (
+                    <>
+                      <div className="sim-lineup-selected-slot" aria-live="polite">
+                        <span>{selectedDraftLineupParticipant.role} 편집 대상</span>
+                        <strong>
+                          {selectedDraftLineupParticipant.player.number}. {selectedDraftLineupParticipant.player.name}
+                        </strong>
+                        <small>
+                          {selectedDraftLineupParticipant.player.position} · {selectedDraftLineupParticipant.player.club} · 종합 {selectedDraftLineupParticipant.player.abilities.overall}
+                        </small>
+                      </div>
+
+                      <details className="sim-lineup-swap">
+                        <summary>선발 간 포지션 변경</summary>
+                        <p>
+                          다른 선발 선수를 선택하면 두 선수가 맡는 포메이션
+                          슬롯을 서로 바꿉니다.
+                        </p>
+                        {setupLineupSwapCandidates.length > 0 ? (
+                          <ul aria-label={`${selectedDraftLineupParticipant.player.name} 포지션 변경 대상`}>
+                            {setupLineupSwapCandidates.map(
+                              ({ participant, slotIndex, isExact }) => (
+                                <li key={participant.participantId}>
+                                  <button
+                                    type="button"
+                                    className={isExact ? "" : "is-out-of-position"}
+                                    aria-label={`${selectedDraftLineupParticipant.player.name} 선수와 ${participant.player.name} 선수의 ${selectedDraftLineupParticipant.role}, ${participant.role} 포지션 교환`}
+                                    onClick={() => swapDraftHomeLineupPlayers(slotIndex)}
+                                  >
+                                    <span>{participant.role}</span>
+                                    <strong>
+                                      {participant.player.number}. {participant.player.name}
+                                    </strong>
+                                    <small>{isExact ? "포지션 적합" : "포지션 변경"}</small>
+                                  </button>
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        ) : (
+                          <p className="sim-lineup-swap-empty">
+                            이 선수와 교환할 수 있는 선발 포지션이 없습니다.
+                          </p>
+                        )}
+                      </details>
+                    </>
+                  ) : (
+                    <p className="sim-lineup-help">
+                      위 선발 명단에서 선수를 선택하면 후보 교체와 선발 간
+                      포지션 변경을 진행할 수 있습니다.
+                    </p>
+                  )}
+
+                  <ul
+                    className="sim-bench-list"
+                    aria-label={
+                      selectedDraftLineupParticipant
+                        ? `${selectedDraftLineupParticipant.role} 슬롯 교체 후보`
+                        : `${draftHomeTeam?.name ?? "우리 팀"} 후보 명단`
+                    }
+                  >
+                    {selectedDraftLineupParticipant
+                      ? setupBenchCandidates.map(({ player, compatibility }) => (
+                          <li key={player.id}>
+                            <button
+                              type="button"
+                              className={
+                                compatibility === "out-of-position"
+                                  ? "is-out-of-position"
+                                  : ""
+                              }
+                              onClick={() => replaceDraftHomeLineupPlayer(player.id)}
+                            >
+                              <span className="sim-bench-position">
+                                {player.position}
+                              </span>
+                              <span className="sim-bench-identity">
+                                <strong>{player.number}. {player.name}</strong>
+                                <small>{player.club}</small>
+                              </span>
+                              <span className="sim-bench-fit">
+                                {compatibility === "exact"
+                                  ? "역할 적합"
+                                  : "다른 포지션"}
+                              </span>
+                              <span className="sim-bench-abilities">
+                                <small>종합 <b>{player.abilities.overall}</b></small>
+                                <small>속도 <b>{player.abilities.speed}</b></small>
+                                <small>패스 <b>{player.abilities.passing}</b></small>
+                                <small>수비 <b>{player.abilities.defending}</b></small>
+                              </span>
+                            </button>
+                          </li>
+                        ))
+                      : setupHomeBenchPlayers.map((player) => (
+                          <li key={player.id} className="sim-bench-roster-item">
+                            <span className="sim-bench-position">{player.position}</span>
+                            <span className="sim-bench-identity">
+                              <strong>{player.number}. {player.name}</strong>
+                              <small>{player.club}</small>
+                            </span>
+                            <span className="sim-bench-overall">
+                              종합 <strong>{player.abilities.overall}</strong>
+                            </span>
+                          </li>
+                        ))}
+                  </ul>
+                </section>
               </section>
 
               <section className="sim-formation-team-card" aria-labelledby="sim-away-formation-title">
@@ -2249,7 +2688,9 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
                           : ""
                       }
                       aria-pressed={formation.id === draftAwayFormationId}
-                      onClick={() => setDraftAwayFormationId(formation.id)}
+                      onClick={() =>
+                        changeDraftFormation("away", formation.id)
+                      }
                     >
                       <strong>{formation.label}</strong>
                       <span>{formation.name}</span>
@@ -2425,6 +2866,7 @@ export function SimulationWorkspace({ teams }: SimulationWorkspaceProps) {
               <span>우리 팀</span>
               <strong>{homeTeam?.name}</strong>
               <small>{homeFormation.label} · {homeFormation.name}</small>
+              {homeLineupSelection ? <em>사용자 선발 적용</em> : null}
             </div>
             <i aria-hidden="true">VS</i>
             <div>
